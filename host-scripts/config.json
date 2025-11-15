@@ -6,6 +6,8 @@
             "b2":"00ff00",
             "b3":"00ffff",
             "b4":"00ff00",
+
+            "c3":"ff0000",
 			
             "d1":"00ff00",
             "d2":"ffff00",
@@ -22,6 +24,8 @@
             "b2":"\\e\\e\\C\\S2\\s\\c",
             "b3":"\\e\\e\\C\\S1\\s\\c\\sgs",
             "b4":"\\e\\e\\C\\S1\\s\\c\\sgd",
+
+            "c3":"\\S7\\s\\p\\Ca\\ccategory\\S.\\smfm,pdm\\n",
 
             "d1":"c\\pp3\\n",
             "d2":"c\\pp2\\n",
@@ -44,51 +48,189 @@
 
         }
     },
+
+    "teams|onenote|winword|powerpnt":{
+        "layout":"ES",
+        "toggles":{
+            "pause":[
+                {
+                    "key":"b2",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f6",
+                        "ctrl+windows+shift+f4"
+                    ]
+                },
+                {
+                    "key":"b2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "ctrl+windows+shift+f5"
+                    ]
+                }
+            ],
+            "start-stop":[
+                {
+                    "key":"b1",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f6",
+                        "ctrl+windows+shift+f4"
+                    ]
+                },
+                {
+                    "key":"b1",
+                    "color":"00ff00",
+                    "strokes":[
+                        "ctrl+windows+shift+f7"
+                    ]
+                }
+            ]
+        },
+        "colors":{
+            "b1":"00ff00",
+            "b2":"00ff00"
+        },
+        "keys":{
+            "b1":"MSG:TOGGLE:start-stop",
+            "b2":"MSG:TOGGLE:pause"
+        }
+    },
     
     "terminal":{
         "layout":"EN",
         "keys":{
-            "a1":"\\C\\S4",
-            "a2":"\\C\\S2"
+            "b1":"\\Cb\\c\\S5",
+            "b2":"\\Cb\\c\\S'",
+            "c1":"\\Cb\\cz",
+            "b3":"\\F",
+            "c3":"\\G",
+            "c2":"\\Cb\\c["
         },
         "colors":{
-            "a1":"00ff00",
-            "a2":"0000ff"
+            "b1":"0000ff",
+            "b2":"00ffff",
+            "c1":"ffffff",
+            "c2":"777777",
+            "b3":"ffff00", 
+            "c3":"ff00ff"
         }
-    },
-    "code|dbeaver":{
-        "layout":"EN",
-        "keys":{
-            "e3":"MSG:TYPE:#UUID#",
-            "e4":"MSG:TYPE:#NEW_UUID##UUID#"
-        },
-        "colors":{
-            "e3":"ffff00",
-            "e4":"ff00ff"
-        }
-    },
-    "teams|onenote|word":{
-        "layout":"ES",
-        "keys":{},
-        "colors":{}
     },
     ".":{
         "layout":"EN",
+        "toggles":{
+            "layouts":[
+                {
+                    "key":"a2",
+                    "color":"ffff00",
+                    "strokes":[
+                        "windows+ctrl+alt+1"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+ctrl+alt+2"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "windows+ctrl+alt+3"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"ff0000",
+                    "strokes":[ 
+                        "windows+ctrl+alt+0"
+                    ]
+                }
+            ],
+            "scenes":[
+                {
+                    "key":"a2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "ctrl+windows+shift+f8"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f9"
+                    ]
+                }
+            ],
+            "camera":[
+                {
+                    "key":"a3",
+                    "color":"ff0000",
+                    "strokes":[
+                        "windows+ctrl+shift+f11"
+                    ]
+                },
+                {
+                    "key":"a3",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+ctrl+shift+f10"
+                    ]   
+                }
+            ],
+            "microphone":[
+                {
+                    "key":"a4",
+                    "color":"ff0000",
+                    "strokes":[
+                        "windows+alt+k"
+                    ]
+                },
+                {
+                    "key":"a4",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+alt+k"
+                    ]
+                }
+            ]
+        },
         "colors":{
             "a1":"ff6600",
-            "a2":"000088",
-            "a3":"ff66ff",
+            "a2":"00ff00",
+            "a3":"ff0000",
             "a4":"ff0000",
+
+            "c4":"999955",
+
+            "e1":"ff0000",
+            "e2":"0000ff",
+
+            "e3":"ffff00",
+            "e4":"ff00ff",
+
             "f1":"ff0000",
             "f2":"660000",
             "f3":"000066",
             "f4":"0000ff"
         },
         "keys":{
-            "a1":"\\Wr\\w\\pubuntu2404\\n",
-            "a2":"\\Wr\\w\\pcmd\\n",
-            "a3":"MSG:OPEN:chrome",
-            "a4":"\\W\\Ak\\a\\w",
+            "a1":"MSG:OPEN:EN,Ubuntu",
+            "a2":"MSG:TOGGLE:scenes",
+            "a3":"MSG:TOGGLE:camera",
+            "a4":"MSG:TOGGLE:microphone",
+
+            "c4":"blue",
+
+            "e1":"\\f",
+            "e2":"\\g",
+
+            "e3":"MSG:TYPE:#UUID#",
+            "e4":"MSG:TYPE:#NEW_UUID##UUID#",
+
             "f1":"\\C\\H",
             "f2":"\\H",
             "f3":"\\Z",
@@ -115,7 +257,7 @@
         
             ";": "SEMICOLON",       "'": "QUOTE",       "`": "GRAVE_ACCENT",    "!": "ONE",
             ",": "COMMA",           ".": "PERIOD",      "@":"TWO",              "#":"THREE",
-            "$":"FOUR",             "%":"FIVE",         "^":"SIX",              "&":"SEVEN",
+            "$":"FOUR",             "%":"",         "^":"SIX",              "&":"SEVEN",
             "*":"EIGHT",            "_": "MINUS",       "{": "LEFT_BRACKET",    "}": "RIGHT_BRACKET",
             ":": "SEMICOLON",       "\"": "QUOTE",      "<": "COMMA",           ">": "DOT",
             "?": "FORWARD_SLASH",   "|": "BACKSLASH",
@@ -127,9 +269,9 @@
 
             "\\H": "HOME",          "\\Z": "END",
 
-            "\\1": "F1",        "\\2": "F2",        "\\3": "F3",        "\\4": "F4",
+            "\\1": "F11",        "\\2": "F12",        "\\3": "F3",        "\\4": "F4",
             "\\5": "F5",        "\\6": "F6",        "\\7": "F7",        "\\8": "F8",
-            "\\9": "F9",        "\\0": "F10"
+            "\\9": "F9",        "\\0": "F10",       "\\F": "PAGE_UP",   "\\G": "PAGE_DOWN"
         }
     } 
 }

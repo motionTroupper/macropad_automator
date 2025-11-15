@@ -20,6 +20,7 @@ import keyboard
 import ctypes
 import psutil
 import uuid
+import traceback
 
 latest_window = ''
 latest_uuid = None
@@ -38,10 +39,19 @@ layouts = {
 }
 
 programs={
-    "chrome":"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    "chrome":{
+        "program":"chrome.exe",
+        "window":"chrome.exe"
+    },
+    "Ubuntu":{
+        "program":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+        "window":"WindowsTerminal.exe"
+    }
 }
 
+running_config={}
 configs={}
+toggles={}
 
 def obtener_layout_actual():
     # Obtiene el ID del thread con foco (ventana activa)
@@ -61,36 +71,51 @@ def cambiar_layout(layout,recheck):
             cambiar_layout(layout,False)
         else:
             print (f"Cambiando layout a {layout} desde {curr_layout}")
-            keyboard.press_and_release('alt+shift')
+            keyboard.press_and_release('windows+space')
 
 def open_window(filtro_regex):
+    if ',' in filtro_regex:
+        parts = filtro_regex.split(',')
+        cambiar_layout(parts[0],True)
+        filtro_regex = parts[1]
+        time.sleep(0.1)
+
+    if filtro_regex not in programs:
+        print (f"Program {filtro_regex} was not recognized")
+        return 
+    
+    program_name = programs[filtro_regex]['program']
+    window_name = programs[filtro_regex]['window']
+
     def callback(hwnd, lista):
-        titulo = win32gui.GetWindowText(hwnd)
-        if re.search(filtro_regex, titulo, re.IGNORECASE):  # Filtra las que tienen título
-            lista.append(hwnd)
+        if win32gui.IsWindowVisible(hwnd):
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            try:
+                proceso = psutil.Process(pid)
+                nombre_ejecutable = proceso.name()
+                if re.search(window_name, nombre_ejecutable, re.IGNORECASE):
+                    lista.append(hwnd)
+            except psutil.NoSuchProcess:
+                pass
 
     ventanas=[]
     win32gui.EnumWindows(callback, ventanas)
     if len(ventanas)==0:
-        print(f"Opening application")
-        subprocess.Popen(programs[filtro_regex], shell=True)
+        subprocess.Popen(f"start {program_name}", shell=True)
     else:
         for hwnd in ventanas:
-            if True or win32gui.IsIconic(hwnd):  # Si la ventana está minimizada, restaurarla
-                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-                time.sleep(0.1)  # Pequeña pausa para asegurar la restauración
+            if hwnd == win32gui.GetForegroundWindow():
+                # Abrir una nueva pestana si ya está en primer plano
+                subprocess.Popen(f"start {program_name}", shell=True)
+            elif win32gui.IsIconic(hwnd):  
+                # Si la ventana está minimizada, restaurarla
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 time.sleep(0.1)  # Pequeña pausa para asegurar la restauración
-
-            # Intentar traer la ventana al frente
-            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)  # Asegurar que sea visible
-            win32gui.BringWindowToTop(hwnd)  # Intentar traerla al frente
-            try:
-                win32gui.SetForegroundWindow(hwnd)  # Intentar darle el foco
-            except Exception as ex:
-                print("Could not bring to front")
-            print(f"Ventana activada.")
-
+            else:
+                # Si no está minimizada, minimizarla y restaurarla para traerla al frente
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                time.sleep(0.1)
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
 # Función para obtener el nombre de la ventana activa
 def get_active_window():
@@ -110,6 +135,7 @@ def get_active_window():
 
 def lookup_config(window_title):
     global configs
+    global toggles
 
     try:
         config_version = datetime.datetime.fromtimestamp(Path("./config.json").stat().st_mtime)
@@ -132,20 +158,31 @@ def lookup_config(window_title):
                 print(f"{clave} matched for {window_title}")  
                 if not new_config['window']:
                     new_config['window'] = clave
+
                 for key, value in configs[clave]['keys'].items():
                     new_config['keys'][key]=value
+
                 for key, value in configs[clave]['colors'].items():
                     new_config['colors'][key]=value
+
+                for key, value in configs[clave].get('toggles',{}).items():
+                    toggle = toggles.setdefault(key, {})
+                    toggle['config'] = value
+                    toggle.setdefault('pos', 0)
+
                 if (configs[clave]).get('symbols',None):
                     new_config['symbols'] = configs[clave]['symbols'] 
+
                 if (configs[clave]).get('layout',None):
                     new_config['layout']=configs[clave]['layout']
+
         # prettyprint new_config
         #print (f"Configuración compuesta: {new_config}") # en prettyprint
 
         return new_config
     except Exception as e:
         print(f"Error loading json: {e}")
+        traceback.print_exc()
         
     
     return {
@@ -164,22 +201,50 @@ def type_chars(cadena):
         if not latest_uuid:
             latest_uuid=str(uuid.uuid4())
         cadena = cadena.replace("#UUID#",latest_uuid)
+    keyboard.write(cadena)
 
-    for char in cadena:
-        keyboard.press_and_release(char)
+def toggle_key(toggle_name):
+    global toggles
+    global running_config
+    global ser
+
+    print ("toggle key called for "+toggle_name)
+
+    cur_pos = toggles[toggle_name].get('pos',0)
+    options = toggles[toggle_name]['config']
+    num_options = len(options)
+    next_pos = (cur_pos+1) % num_options
+    toggles[toggle_name]['pos']=next_pos
+    next_leds = toggles[toggle_name]['config'][next_pos]['color']
+    next_strokes = toggles[toggle_name]['config'][next_pos]['strokes']
+    next_key = toggles[toggle_name]['config'][next_pos]['key']
+
+    running_config['colors'][next_key]=next_leds
+    for stroke in next_strokes:
+        print (f"Pressing {stroke}")
+        keyboard.press(stroke)
+        time.sleep(0.05)
+        keyboard.release(stroke)
+    command = json.dumps(running_config) + '\n'
+    ser.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
+
 
 # Función principal que monitorea el cambio de ventana 
 def monitor_window_focus():
     global configs
     global ser
+    global splits
+    global running_config
     while True:
-        configs = {}
-        if ser:
-            ser.close()
-            ser = None
-        ser = serial.Serial('COM4', 115200, timeout=1)  # Asegúrate de que COM4 es el puerto correcto
         try:
+            configs = {}
             current_program = ''
+
+            if ser:
+                ser.close()
+                ser = None
+
+            ser = serial.Serial('COM4', 115200, timeout=1)  
             while True:
                 if ser.in_waiting:
                     data = json.loads(ser.readline().decode('utf-8').strip())
@@ -188,10 +253,14 @@ def monitor_window_focus():
                         app = data['code'][5:]
                         print(f"Told to open [{app}]")
                         open_window(app)
-                    if data['code'][:5]=='TYPE:':
+                    elif data['code'][:5]=='TYPE:':
                         to_type = data['code'][5:]
                         print(f"Told to type {to_type}")
                         type_chars(to_type)
+                    elif data['code'][:7]=='TOGGLE:':
+                        toggle_name = data['code'][7:]
+                        toggle_key(toggle_name)
+
 
                 try:
                     active_program, active_window = get_active_window()
@@ -207,18 +276,23 @@ def monitor_window_focus():
 
                 if  active_program != current_program:
                     current_program = active_program
-                    active = lookup_config(active_program)
-                    command = json.dumps(active) + '\n'
+                    running_config = lookup_config(active_program)
+                    command = json.dumps(running_config) + '\n'
                     ser.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
-                    if current_program!='explorer.exe' and active.get('layout'):
-                        cambiar_layout(active['layout'],False)
+                    if current_program!='explorer.exe' and running_config.get('layout'):
+                        cambiar_layout(running_config['layout'],False)
 
                 time.sleep(0.5)  # Espera un poco antes de volver a comprobar
 
         except Exception as ex:
             print(f"Process failed {ex}")
         finally:
-            ser.close()
+            try:
+                if ser and ser.is_open:
+                    ser.close()
+            except Exception as e:
+                pass
+            ser = None
             time.sleep(5)
 
 # Función para salir del programa
@@ -239,5 +313,21 @@ def crear_icono():
     icon.run()
 
 if __name__ == "__main__":
+
+    # Flags de Windows para lanzar el proceso sin ventana y desacoplado
+    DETACHED_PROCESS         = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    CREATE_NO_WINDOW         = 0x08000000
+
+    # Lanzar WSL oculto
+    p = subprocess.Popen(
+        ["wscript.exe", "C:\\Users\\raul.mzabala\\Local data\\scripts\"\wsl_hidden.vbs"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    )
+
+    print(f"WSL lanzado con PID {p.pid}, ejecutando sleep infinity")
     crear_icono()
 
