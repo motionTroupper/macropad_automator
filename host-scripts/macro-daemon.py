@@ -39,23 +39,134 @@ BORDER_OFFSET = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
 
+
+import hashlib
+
+def get_monitor_signature():
+    """
+    Genera un hash único basado en los IDs de hardware de los monitores conectados.
+    Esto permite distinguir 'Casa' de 'Oficina' aunque el PC sea el mismo.
+    """
+    display_devices = []
+    i = 0
+    while True:
+        try:
+            # Obtener adaptador de pantalla
+            device = win32api.EnumDisplayDevices(None, i, 0)
+            if device.StateFlags & win32con.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
+                # Obtener el monitor real conectado a ese adaptador
+                # (DeviceID suele contener el modelo y número de serie)
+                try:
+                    monitor = win32api.EnumDisplayDevices(device.DeviceName, 0, 0)
+                    device_id = monitor.DeviceID
+                    # Ejemplo de ID: MONITOR\DEL4044\{GUID}...
+                    # Nos quedamos con la parte del modelo (ej: DEL4044) para que sea legible
+                    # O usamos todo el string para máxima seguridad.
+                    display_devices.append(device_id)
+                except:
+                    pass # Adaptador virtual o sin monitor físico detectado
+            i += 1
+        except:
+            break
+    
+    # Ordenamos para que no importe en qué puerto conectas cada uno
+    display_devices.sort()
+    
+    # Creamos un string único
+    signature_raw = "|".join(display_devices)
+    
+    # Opción A: Usar un hash corto (MD5)
+    signature_hash = hashlib.md5(signature_raw.encode()).hexdigest()[:8]
+    
+    return signature_raw, signature_hash
+
+def get_monitor_signature():
+    """
+    Genera un hash único basado en los IDs de hardware de los monitores conectados.
+    Esto permite distinguir 'Casa' de 'Oficina' aunque el PC sea el mismo.
+    """
+    display_devices = []
+    i = 0
+    while True:
+        try:
+            # Obtener adaptador de pantalla
+            device = win32api.EnumDisplayDevices(None, i, 0)
+            if device.StateFlags & win32con.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
+                # Obtener el monitor real conectado a ese adaptador
+                # (DeviceID suele contener el modelo y número de serie)
+                try:
+                    monitor = win32api.EnumDisplayDevices(device.DeviceName, 0, 0)
+                    device_id = monitor.DeviceID
+                    # Ejemplo de ID: MONITOR\DEL4044\{GUID}...
+                    # Nos quedamos con la parte del modelo (ej: DEL4044) para que sea legible
+                    # O usamos todo el string para máxima seguridad.
+                    display_devices.append(device_id)
+                except:
+                    pass # Adaptador virtual o sin monitor físico detectado
+            i += 1
+        except:
+            break
+    
+    # Ordenamos para que no importe en qué puerto conectas cada uno
+    display_devices.sort()
+    
+    # Creamos un string único
+    signature_raw = "|".join(display_devices)
+    
+    # Opción A: Usar un hash corto (MD5)
+    signature_hash = hashlib.md5(signature_raw.encode()).hexdigest()[:8]
+    
+    return signature_raw, signature_hash
+
 def load_zones_config():
     global ZONE_DEFINITIONS, MONITOR_ALIASES, BORDER_OFFSET, APP_OVERRIDES
     try:
-        with open("zones.json", "r") as f:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(script_dir, "zones.json")
+        
+        with open(json_path, "r") as f:
             data = json.load(f)
             ZONE_DEFINITIONS = data.get("areas", {})
-            MONITOR_ALIASES = data.get("monitors", {})
-
             APP_OVERRIDES = data.get("app_overrides", {})
 
+            # 1. Obtener Datos del Entorno
             hostname = socket.gethostname()
+            sig_raw, sig_hash = get_monitor_signature()
+            
+            print(f"--- DIAGNÓSTICO DE ENTORNO ---")
+            print(f"Hostname:  {hostname}")
+            print(f"Monitores: {sig_raw}")
+            print(f"Signature: {sig_hash}")
+            print(f"------------------------------")
+
+            # 2. LÓGICA DE PRIORIDAD DE MONITORES
+            # Prioridad 1: Configuración específica por Firma de Monitores (Ubicación física)
+            mon_key_sig = f"monitors-{hostname}-{sig_hash}"
+            
+            # Prioridad 2: Configuración por Hostname (Disco duro)
+            mon_key_host = f"monitors-{hostname}"
+            
+            if mon_key_sig in data:
+                MONITOR_ALIASES = data[mon_key_sig]
+                print(f"-> CARGADO: Perfil de Ubicación (Firma: {hostname}-{sig_hash})")
+            elif mon_key_host in data:
+                MONITOR_ALIASES = data[mon_key_host]
+                print(f"-> CARGADO: Perfil de Hostname ({hostname})")
+            else:
+                MONITOR_ALIASES = data.get("monitors", {})
+                print(f"-> CARGADO: Perfil Genérico (Default)")
+
+            # 3. LÓGICA DE OFFSETS (Bordes)
+            # Aquí solemos querer el Hostname (porque depende de la configuración de Windows/DPI del SO actual)
+            # Pero podrías usar también la firma si quisieras.
             offset_key = f"offsets-{hostname}"
             BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
 
             print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas.")
+
     except Exception as e:
         print(f"Error cargando zones.json: {e}")
+        traceback.print_exc()
 
 load_zones_config()
 
