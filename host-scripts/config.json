@@ -37,14 +37,14 @@
             "e3":"c\\ppdm\\n\\p\\d",
             "e4":"",
 
-            "e4-d1":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp3\\n",
-            "e4-d2":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp2\\n",
-            "e4-d3":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp1\\n",
-            "e4-d4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\smfm\\n",
+            "d1-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp3\\n",
+            "d2-er":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp2\\n",
+            "d3-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp1\\n",
+            "d4-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\smfm\\n",
 
-            "e4-e1":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdx\\n",
-            "e4-e2":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdo\\n",
-            "e4-e3":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdm\\n"
+            "e1-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdx\\n",
+            "e2-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdo\\n",
+            "e3-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdm\\n"
 
         }
     },
@@ -222,6 +222,22 @@
             "a2":"MSG:TOGGLE:scenes",
             "a3":"MSG:TOGGLE:camera",
             "a4":"MSG:TOGGLE:microphone",
+
+
+            "b1-b2":"MSG:SCREEN:top-left",
+            "b3-b4":"MSG:SCREEN:top-right",
+            "b2-b3":"MSG:SCREEN:top-full",
+            
+            "c1-c2":"MSG:SCREEN:left-top",
+            "d1-d2":"MSG:SCREEN:left-mid",
+            "c1-d1": "MSG:SCREEN:left-top+mid",
+            "e1-e2":"MSG:SCREEN:left-bottom",
+            "d1-e1":"MSG:SCREEN:left-mid+bottom",
+            "c1-e1":"MSG:SCREEN:left-full",
+
+            "f1-f2":"MSG:SCREEN:laptop-left",
+            "f3-f4":"MSG:SCREEN:laptop-right",
+            "f2-f3":"MSG:SCREEN:laptop-full",
 
             "c4":"blue",
 

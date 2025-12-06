@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Handle button pressed on the macropad
-# Send A-X key pressed
-# The pressed button will light up, cycling through RGB colors
-# === Standard and Library Imports ===
+# FIXED: Ghosting (Hi-Z) AND Aliasing (Active Discharge)
+#
 import time
 import board
 import busio
@@ -19,60 +18,55 @@ from framework_is31fl3743 import IS31FL3743
 import json
 import traceback
 
-
-
 # === Matrix and Threshold Configuration ===
 MATRIX_COLS = 8
 MATRIX_ROWS = 4 
+ADC_THRESHOLD = 0.55  
+DEBOUNCE_DELAY = 0.05  
 
-ADC_THRESHOLD = 0.4
-DEBUG = False
-
-# List of (being) pressed keys at each moment
+# List of currently pressed keys
 pressed = []
 
-# Matrix layout mapping logical keys to physical positions
+# Matrix layout 
+# CORREGIDO: En tu código original 'b4' aparecía dos veces.
+# He cambiado el de la fila 1 (index 5) a "c4" para que coincida con tu reporte.
 MATRIX = [
     ["f1", "b3", "c3", "d3", "e3", "f3", "b4", "d4"],
-    ["f4", "a1", "a2", None, "a4", "b4", "e4", "f2"],
+    ["f4", "a1", "a2", None, "a4", "c4", "e4", "f2"], # <-- c4 corregido aquí
     ["b1", "c1", "d1", "e1", "b2", "c2", "d2", "e2"],
     [None, None, None, None, "a3", None, None, None]
 ]
 
-# Mapping from logical key names to LED controller indices
+# Mapping LEDs
 MATRIX_LED_MAP = {
     "a1" : 40,  "a2" : 37,  "a3" : 52,  "a4" : 49,
     "b1" : 4,   "b2" : 1,   "b3" : 16,  "b4" : 13,
-    "c1" : 22,  "c2" : 19,  "c3" : 34,  "c4" : 31,
+    "c1" : 22,  "c2" : 19,  "c3" : 34,  "c4" : 31, # c4 tiene LED map, faltaba en MATRIX
     "d1" : 58,  "d2" : 55,  "d3" : 70,  "d4" : 67,
     "e1" : 25,  "e2" : 61,  "e3" : 64,  "e4" : 28,
     "f1" : 7,   "f2" : 43,  "f3" : 46,  "f4" : 10
 }
 
-
-# Key symbol mapping will be loaded from configuration
 SYMBOLS = {}
 MATRIX_COLORS = {}
 MATRIX_COMMANDS = {}
 
+# Init Keyboard
+try:
+    keyboard = Keyboard(usb_hid.devices)
+except:
+    keyboard = None
 
-# Initialize USB HID keyboard device
-keyboard = Keyboard(usb_hid.devices)
-
-# Set unused pins to input to avoid interfering. They're hooked up to rows 5 and 6
-
-# Configure unused pins as input to prevent interference
+# === Hardware Setup ===
 gp6 = digitalio.DigitalInOut(board.GP6)
 gp6.direction = digitalio.Direction.INPUT
 gp7 = digitalio.DigitalInOut(board.GP7)
 gp7.direction = digitalio.Direction.INPUT
 
-# Set up analog MUX pins
-
-# Set up multiplexer control pins
+# Mux Pins
 mux_enable = digitalio.DigitalInOut(board.MUX_ENABLE)
 mux_enable.direction = digitalio.Direction.OUTPUT
-mux_enable.value = False  # Low to enable it
+mux_enable.value = False 
 mux_a = digitalio.DigitalInOut(board.MUX_A)
 mux_a.direction = digitalio.Direction.OUTPUT
 mux_b = digitalio.DigitalInOut(board.MUX_B)
@@ -80,264 +74,196 @@ mux_b.direction = digitalio.Direction.OUTPUT
 mux_c = digitalio.DigitalInOut(board.MUX_C)
 mux_c.direction = digitalio.Direction.OUTPUT
 
-
-# Set up KSO pins
-
-# Define and configure column driver (KSO) pins for the key matrix
+# KSO Pins
 kso_pins = [
     digitalio.DigitalInOut(x)
     for x in [
-        # KSO0 - KSO7 for Keyboards and Numpad
-        board.KSO0,     board.KSO1,     board.KSO2,     board.KSO3,
-        board.KSO4,     board.KSO5,     board.KSO6,     board.KSO7,
-        # KSO8 - KSO15 for Keyboards only
-        board.KSO8,     board.KSO9,     board.KSO10,    board.KSO11,
-        board.KSO12,    board.KSO13,    board.KSO14,    board.KSO15
+        board.KSO0, board.KSO1, board.KSO2, board.KSO3,
+        board.KSO4, board.KSO5, board.KSO6, board.KSO7,
+        board.KSO8, board.KSO9, board.KSO10, board.KSO11,
+        board.KSO12, board.KSO13, board.KSO14, board.KSO15
     ]
 ]
 for kso in kso_pins:
-    kso.direction = digitalio.Direction.OUTPUT
-    kso.value = 1
+    kso.direction = digitalio.Direction.INPUT
 
-
-# Analog input used to read voltage from the key multiplexer
 adc_in = analogio.AnalogIn(board.GP28)
 
-# Signal boot done
-
-# Output pin signaling that boot has completed
 boot_done = digitalio.DigitalInOut(board.BOOT_DONE)
 boot_done.direction = digitalio.Direction.OUTPUT
 boot_done.value = False
 
-
-
-# === Multiplexer Helper Functions ===
+# === Helper Functions ===
 def mux_select_row(row):
     mux_a.value = row & 0x01
     mux_b.value = row & 0x02
     mux_c.value = row & 0x04
 
-
+# === CORRECCIÓN CRÍTICA DE ALIASING ===
 def drive_col(col, value):
-    kso_pins[col].value = value
-
+    pin = kso_pins[col]
+    if value == 0:
+        # ACTIVAR: Modo salida y valor 0
+        pin.direction = digitalio.Direction.OUTPUT
+        pin.value = False
+    else:
+        # DESACTIVAR (Con descarga activa)
+        # 1. Forzamos a 1 (HIGH) brevemente para borrar la capacitancia de 0V
+        pin.direction = digitalio.Direction.OUTPUT
+        pin.value = True
+        # 2. Ahora que está limpia a 3.3V, la dejamos flotando
+        pin.direction = digitalio.Direction.INPUT
 
 def to_voltage(adc_sample):
     return (adc_sample * 3.3) / 65536
 
-# Enable LED controller via SDB pin
-
-# === LED Driver Initialization ===
+# === LED Driver ===
 sdb = digitalio.DigitalInOut(board.GP29)
 sdb.direction = digitalio.Direction.OUTPUT
 sdb.value = True
-
-
-# Initialize I2C bus and scan to ensure LED controller is detected
-i2c = busio.I2C(board.SCL, board.SDA)  # Or board.I2C()
-
-# TODO: If I don't scan the bus, creating IS31FL3743 can't find the device. Why...?
+i2c = busio.I2C(board.SCL, board.SDA)
 i2c.try_lock()
 i2c.scan()
 i2c.unlock()
-
-
-# Initialize and configure IS31FL3743 LED controller
 is31 = IS31FL3743(i2c)
-is31.set_led_scaling(0x20)  # Brightness
-is31.global_current = 0x20  # Current 
+is31.set_led_scaling(0x20)
+is31.global_current = 0x20
 is31.enable = True
 
-# SLEEP# pin. Low if the host is sleeping
-
-# Input pin used to detect host sleep state
 sleep_pin = digitalio.DigitalInOut(board.GP0)
-
-# Input pin used to detect host sleep state
 sleep_pin.direction = digitalio.Direction.INPUT
 
-
-# === Update LED Colors Based on Configuration ===
 def matrix_paint():
-
-# Mapping from logical key names to LED controller indices
-    global MATRIX_LED_MAP
-    global MATRIX_COLORS
-
-# Mapping from logical key names to LED controller indices
+    global MATRIX_LED_MAP, MATRIX_COLORS
     for key in MATRIX_LED_MAP.keys():
         value = MATRIX_COLORS.get(key,None)
         if value:
-            # Mapping from logical key names to LED controller indices
-            is31[MATRIX_LED_MAP[key] +2 ] = int(value[:2],16)
-            is31[MATRIX_LED_MAP[key] +1 ] = int(value[2:4],16)
-            is31[MATRIX_LED_MAP[key] +0 ] = int(value[-2:],16)
+            try:
+                r = int(value[:2], 16)
+                g = int(value[2:4], 16)
+                b = int(value[-2:], 16)
+                idx = MATRIX_LED_MAP[key]
+                is31[idx + 2] = r
+                is31[idx + 1] = g
+                is31[idx + 0] = b
+            except: pass
         else:
-            # Setting LED to OFF
-            is31[MATRIX_LED_MAP[key] +2 ] = 0x00
-            is31[MATRIX_LED_MAP[key] +1 ] = 0x00
-            is31[MATRIX_LED_MAP[key] +0 ] = 0x00
+            idx = MATRIX_LED_MAP[key]
+            is31[idx + 2] = 0; is31[idx + 1] = 0; is31[idx + 0] = 0
 
-
-# === Handle Key Press Logic ===
 def process_key(key, is_pressed):
-    global pressed
-    global MATRIX_COMMANDS
-    global SYMBOLS
+    global pressed, MATRIX_COMMANDS, SYMBOLS, usb_serial
 
-    if len(pressed)>1:
-        key = "-".join(pressed)
-    code = MATRIX_COMMANDS.get(key, None)
+    #print (f"Key {'Pressed' if is_pressed else 'Released'}: {key}")
 
-    if not code:
-        ## No code for this key
-        return
-    elif is_pressed and code[0:4] == "MSG:":
-        ## Process message key function
-        to_send = {
-            "key": key,
-            "code": code[4:],
-            "pressed": is_pressed
-        }
-        usb_serial.write((json.dumps(to_send) + '\n').encode())
-        usb_serial.flush()
+    lookup_key = key
+    if len(pressed) > 1:
+        sorted_pressed = sorted(pressed)
+        lookup_key = "-".join(sorted_pressed)
+    
+    code = MATRIX_COMMANDS.get(lookup_key, None)
+
+    if not code: return
+    elif is_pressed and code.startswith("MSG:"):
+        to_send = {"key": lookup_key, "code": code[4:], "pressed": is_pressed}
+        print (f"Sending message: {to_send}")
+        if usb_serial:
+            usb_serial.write((json.dumps(to_send) + '\n').encode())
+            usb_serial.flush()
         return
 
-    ## Process normal key function
+    if not keyboard: return
+    
+    # Simple macro processor
     escaped = False
-    for key in code:
-        press = is_pressed
-        release = True
-
+    for key_char in code:
+        press = is_pressed; release = True
         if escaped:
-            ## Within escaped code
             escaped = False
-            if key == key.upper():
-                release = False
-            else:
-                release = True
-
-            if key.upper() =='P':
-                time.sleep(0.15)
-                key = None
-                continue
-            else:
-                key = "\\" + key
+            if key_char == key_char.upper(): release = False
+            else: release = True
+            if key_char.upper() =='P': time.sleep(0.15); continue
+            else: key_char = "\\" + key_char
         else:
-            ## Within normal operation
-            if key == '\\':
-                escaped = True
-                key = None
-                continue
-            else:
-                escaped = False
+            if key_char == '\\': escaped = True; continue
+            else: escaped = False
 
-
-        # Actually press and/or release the keys
-        if key:
-            ## Resolve key
-            symbol = SYMBOLS.get(key.upper(),None)
+        if key_char:
+            symbol = SYMBOLS.get(key_char.upper(), None)
             if symbol:
-                key_code = getattr(Keycode, symbol)
+                key_code = getattr(Keycode, symbol, None)
                 if key_code:
-                    press and keyboard.press(key_code)
-                    release and keyboard.release(key_code)
-                else:
-                    print (f"Could not find code for {symbol}")
-            else:
-                print (f"Could not find key {key}")
+                    if press: keyboard.press(key_code)
+                    if release: keyboard.release(key_code)
 
-    # Just in case    
-    is_pressed or keyboard.release_all()
+    if not is_pressed: keyboard.release_all()
 
-
-# === Scan Matrix and Detect Key Events ===
-def matrix_scan():
-    global pressed
-
-# === Matrix and Threshold Configuration ===
-    global MATRIX_COLS
-    global MATRIX_ROWS
-    global MATRIX
-
-# === Matrix and Threshold Configuration ===
+def get_raw_matrix_state():
+    current_state = []
     for col in range(MATRIX_COLS):
-        drive_col(col, 0)
+        drive_col(col, 0) 
         for row in range(MATRIX_ROWS):
-            key = MATRIX[row][col]
-            if key:
-                mux_select_row(row)
-                if to_voltage(adc_in.value) < ADC_THRESHOLD:
-                    if not key in pressed:
-                        pressed.append(key)
-                        process_key(key, True)
-                else:
-                    if key in pressed:
-                        process_key(key, False)
-                        pressed.remove(key)
-        drive_col(col, 1)
+            mux_select_row(row)
+            # Aumentamos ligeramente la pausa para estabilizar
+            time.sleep(0.00005) 
+            if to_voltage(adc_in.value) < ADC_THRESHOLD:
+                key_name = MATRIX[row][col]
+                if key_name: current_state.append(key_name)
+        drive_col(col, 1) 
+    return current_state
 
-
-
-# === Load Key and LED Configuration from JSON ===
 def load_config(config):
-    global MATRIX_COLORS
-    global MATRIX_COMMANDS  
-    global SYMBOLS
-    MATRIX_COLORS = config['colors']
-    MATRIX_COMMANDS = config['keys']
-    if config.get('symbols',None):
-        SYMBOLS = config['symbols']
+    global MATRIX_COLORS, MATRIX_COMMANDS, SYMBOLS
+    MATRIX_COLORS = config.get('colors', {})
+    MATRIX_COMMANDS = config.get('keys', {})
+    if config.get('symbols', None): SYMBOLS = config['symbols']
     matrix_paint()
 
+# === Main Loop ===
+print("Starting Anti-Ghosting Engine V3")
 
+last_read_state = []
+stable_pressed = []
 
-
-# === Main Execution Loop ===
-print ("Starting up")
 while True:
+    for col in range(MATRIX_COLS): drive_col(col, 1) # Reset All to Hi-Z
 
-    ## Reset output pins
-
-# === Matrix and Threshold Configuration ===
-    for col in range(MATRIX_COLS):
-        drive_col(col, 1)
-
-    try:
-        usb_serial = usb_cdc.data
-        usb_serial.flush()
-    except Exception as e:
-        usb_serial = None
-        print(f"Error: {e}")
+    try: usb_serial = usb_cdc.data
+    except: usb_serial = None
         
     while True:
         try:
-
-# Input pin used to detect host sleep state
             is31.enable = sleep_pin.value
-
-# Input pin used to detect host sleep state
-            if sleep_pin.value:
-                time.sleep(0.01)
-                if usb_serial and usb_serial.in_waiting:
-                    try:
-                        data = usb_serial.readline(-1).decode()
-                        load_config(json.loads(data))
-                    except Exception as e:
-                        print(f"Could not get config from serial {data}")
+            if not sleep_pin.value: time.sleep(5); continue
+            
+            if usb_serial and usb_serial.in_waiting:
                 try:
-                    matrix_scan()
-                except Exception as e:
-                    print(f"Error: {e}")
-            else:
-                ## Sleep mode. will not scan for 5 more seconds
-                time.sleep(5)
+                    data = usb_serial.readline().decode().strip()
+                    if data: load_config(json.loads(data))
+                except: pass
+
+            raw_state = get_raw_matrix_state()
+            
+            if sorted(raw_state) != sorted(last_read_state):
+                last_read_state = raw_state
+                time.sleep(DEBOUNCE_DELAY)
+                continue 
+            
+            raw_set = set(raw_state)
+            stable_set = set(stable_pressed)
+            
+            if raw_set != stable_set:
+                to_press = raw_set - stable_set
+                to_release = stable_set - raw_set
+                pressed = list(raw_set)
+                for k in to_release: process_key(k, False)
+                for k in to_press: process_key(k, True)
+                stable_pressed = list(raw_set)
+                
+            time.sleep(0.01)
 
         except Exception as e:
             print(f"Error: {e}")
-            traceback.print_exc()
-            keyboard.release_all()
-            print ("Will pause for 5 seconds and retry")
-            time.sleep(5)
-
+            try: keyboard.release_all()
+            except: pass
+            time.sleep(1)

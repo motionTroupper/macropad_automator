@@ -6,9 +6,12 @@ from PIL import Image
 import sys
 import threading
 import pygetwindow as gw
+
+import win32api
 import win32gui
 import win32con
 import win32process
+
 import json
 import re
 from pathlib import Path
@@ -27,6 +30,24 @@ import msvcrt
 latest_window = ''
 latest_uuid = None
 was_teams_running = False
+
+ZONE_DEFINITIONS = {}
+MONITOR_ALIASES = {}
+TEAMS_TOP = 0
+TEAMS_LEFT = 0
+
+def load_zones_config():
+    global ZONE_DEFINITIONS, MONITOR_ALIASES
+    try:
+        with open("zones.json", "r") as f:
+            data = json.load(f)
+            ZONE_DEFINITIONS = data.get("areas", {})
+            MONITOR_ALIASES = data.get("monitors", {})
+            print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas.")
+    except Exception as e:
+        print(f"Error cargando zones.json: {e}")
+
+load_zones_config()
 
 
 # Cambiar al directorio donde está el script
@@ -55,6 +76,95 @@ programs={
 running_config={}
 configs={}
 toggles={}
+
+def get_monitor_rect(alias_name):
+    # Función auxiliar para obtener la geometría de un monitor por su alias
+    idx = int(MONITOR_ALIASES.get(alias_name, -1))
+    if idx == -1: return None
+
+    monitors = win32api.EnumDisplayMonitors()
+    if idx >= len(monitors): return None
+
+    handle = monitors[idx][0]
+    info = win32api.GetMonitorInfo(handle)
+    return info['Work'] # (left, top, right, bottom) Globales
+
+# AJUSTE FINO PARA BORDES INVISIBLES (Windows 10/11)
+# Valores típicos: Left/Right = 7px, Bottom = 7px. Top = 0px.
+# Esto hace que la ventana sea un poco más grande para ocultar la sombra.
+BORDER_OFFSET = {
+    "x": -8,   # Mover a la izquierda para comerse el borde izq
+    "y": -1,    # Arriba suele estar bien (la barra de título es sólida)
+    "w": 16,   # Sumar 7 de izq + 7 de der
+    "h": 9     # Sumar 9 de abajo
+}
+
+def move_window_to_zone(zone_key):
+    global TEAMS_TOP, TEAMS_LEFT
+
+    zone = ZONE_DEFINITIONS.get(zone_key)
+    if not zone:
+        print(f"Zona {zone_key} no existe")
+        return
+
+    hwnd = win32gui.GetForegroundWindow()
+    if not hwnd: return
+
+    # 1. Obtener monitores
+    start_rect = get_monitor_rect(zone['monitor'])
+    if not start_rect: return
+    
+    end_alias = zone.get('monitor_end', zone['monitor'])
+    end_rect = get_monitor_rect(end_alias)
+    if not end_rect: return
+
+    # Geometría monitores
+    s_left, s_top, s_right, s_bottom = start_rect
+    s_width, s_height = (s_right - s_left), (s_bottom - s_top)
+
+    e_left, e_top, e_right, e_bottom = end_rect
+    e_width, e_height = (e_right - e_left), (e_bottom - e_top)
+
+    # 2. CALCULAR PÍXELES TEÓRICOS (Lógica de % original)
+    raw_x = s_left + int(s_width * (zone['min_x'] / 100))
+    raw_y = s_top + int(s_height * (zone['min_y'] / 100))
+    
+    # El punto final X2/Y2 se calcula sobre el monitor de destino
+    raw_x2 = e_left + int(e_width * (zone['max_x'] / 100))
+    raw_y2 = e_top + int(e_height * (zone['max_y'] / 100))
+
+    raw_w = raw_x2 - raw_x
+    raw_h = raw_y2 - raw_y
+
+    # 3. APLICAR CORRECCIÓN DE BORDES (FUDGE FACTOR)
+    # Solo aplicamos corrección si la ventana toca los bordes? 
+    # Generalmente se aplica siempre para que las ventanas adyacentes se toquen visualmente.
+    
+    final_x = raw_x + BORDER_OFFSET["x"]
+    final_y = raw_y + BORDER_OFFSET["y"]
+    final_w = raw_w + BORDER_OFFSET["w"]
+    final_h = raw_h + BORDER_OFFSET["h"]
+
+    # Seguridad: Si maximizas (0-100%), a veces es mejor usar el comando nativo de maximizar
+    # Pero si es multi-monitor (span), usamos MoveWindow.
+    
+    # 4. EJECUTAR
+    try:
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        
+        win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
+        win32gui.SetForegroundWindow(hwnd)
+        print(f"Posicionado en zona {zone_key} en monitor {zone['monitor']}")
+        print(f"Desde ({raw_x},{raw_y}) {raw_w}x{raw_h} a ({final_x},{final_y}) {final_w}x{final_h} con bordes")
+        print(f"Movido con ajuste de bordes: {final_w}x{final_h}")
+
+        if zone.get("is_teams_zone", False):
+            TEAMS_LEFT = final_x
+            TEAMS_TOP = final_y
+        
+    except Exception as e:
+        print(f"Error: {e}")
 
 def obtener_layout_actual():
     # Obtiene el ID del thread con foco (ventana activa)
@@ -263,7 +373,9 @@ def monitor_window_focus():
                     elif data['code'][:7]=='TOGGLE:':
                         toggle_name = data['code'][7:]
                         toggle_key(toggle_name)
-
+                    elif data['code'][:7]=='SCREEN:':
+                        screen_code = data['code'][7:]
+                        move_window_to_zone(screen_code)
 
                 try:
                     active_program, active_window = get_active_window()
@@ -311,14 +423,14 @@ def chat_title(texto):
     return None
 
 def check_teams_window():
-    global was_teams_running
+    global was_teams_running, TEAMS_TOP, TEAMS_LEFT
     print ("Starting Teams window monitor")
     while True:
         is_teams_running = False
         for ventana in gw.getAllWindows():
             titulo = ventana.title or ""
             titulo_minus = titulo.lower()
-            if "teams" in titulo_minus and ventana.top ==-667 and ventana.left == -1087:
+            if "teams" in titulo_minus and ventana.top == TEAMS_TOP and ventana.left == TEAMS_LEFT:
                 print (f"All ventana info: {ventana}")
                 teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(titulo) or 'Meeting'}"
                 print (f"Found Teams window: {teams_app}")
