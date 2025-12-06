@@ -555,8 +555,11 @@ if __name__ == "__main__":
     CREATE_NO_WINDOW         = 0x08000000
 
     # Lanzar WSL oculto
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    vbs_path = os.path.join(script_dir, "wsl_hidden.vbs")
+
     p = subprocess.Popen(
-        ["wscript.exe", "C:\\Users\\raul.mzabala\\Local data\\macropad_automator\\host-scripts\\wsl_hidden.vbs"],
+        ["wscript.exe", vbs_path],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
