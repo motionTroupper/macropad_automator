@@ -21,9 +21,12 @@ import ctypes
 import psutil
 import uuid
 import traceback
+import msvcrt
+
 
 latest_window = ''
 latest_uuid = None
+was_teams_running = False
 
 
 # Cambiar al directorio donde está el script
@@ -300,6 +303,122 @@ def salir(icon, item):
     icon.stop()
     sys.exit()
 
+def chat_title(texto):
+    partes = [parte.strip() for parte in texto.split("|")]
+    for i, parte in enumerate(partes):
+        if parte == "Bosonit" and i > 0:
+            return partes[i - 1]
+    return None
+
+def check_teams_window():
+    global was_teams_running
+    print ("Starting Teams window monitor")
+    while True:
+        is_teams_running = False
+        for ventana in gw.getAllWindows():
+            titulo = ventana.title or ""
+            titulo_minus = titulo.lower()
+            if "teams" in titulo_minus and ventana.top ==-667 and ventana.left == -1087:
+                print (f"All ventana info: {ventana}")
+                teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(titulo) or 'Meeting'}"
+                print (f"Found Teams window: {teams_app}")
+                is_teams_running = True
+        if is_teams_running and not was_teams_running:
+            print ("Teams started running")
+
+            # Switch to scene to record
+            keyboard.press('control+windows+shift+f1')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f1')
+
+            # Switch to scene with camera
+            keyboard.press('control+windows+shift+f8')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f8')
+
+            # Start virtual camera
+            keyboard.press('control+windows+shift+f11')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f11')
+
+            # Switch camera off
+            keyboard.press('control+windows+shift+f10')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f10')
+
+            # Stop recording (just in case)
+            keyboard.press('control+windows+shift+f7')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f7')
+
+            if os.path.exists("c:\\Users\\raul.mzabala\\Videos\\latest.mp4"):
+                print ("Stopping recording...")
+                keyboard.press('control+windows+shift+f7')
+                time.sleep(0.1)
+                keyboard.release('control+windows+shift+f7')
+
+                print ("Waiting for previous recording to be released...")
+                moved = not os.path.exists("c:\\Users\\raul.mzabala\\Videos\\latest.mp4")
+                while not moved:
+                    print ("Trying to rename the previous recording...")
+                    try:
+                        os.replace(
+                            "c:\\Users\\raul.mzabala\\Videos\\latest.mp4",
+                            f"c:\\Users\\raul.mzabala\\Videos\\Captures\\{teams_app}_orphan_prev_meeting.mp4"
+                        )
+                        moved = True
+                    except Exception as e:
+                        print (f"Could not rename: {e}") 
+                        time.sleep(1) 
+
+            print ("Recording file renamed successfully.")
+
+            # Start recording
+            keyboard.press('control+windows+shift+f6')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f6')
+
+        elif not is_teams_running and was_teams_running:
+            print ("Teams stopped running")
+
+            # Switch camera off
+            keyboard.press('control+windows+shift+f10')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f10')
+
+            # Stop virtual camera
+            keyboard.press('control+windows+shift+f2')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f2')
+
+            # Stop recording
+            keyboard.press('control+windows+shift+f7')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f7')
+
+            print ("Waiting for previous recording to be released...")
+            moved = not os.path.exists("c:\\Users\\raul.mzabala\\Videos\\latest.mp4")
+            while not moved:
+                print ("Trying to rename the previous recording...")
+                try:
+                    os.replace(
+                        "c:\\Users\\raul.mzabala\\Videos\\latest.mp4",
+                        f"c:\\Users\\raul.mzabala\\Videos\\Captures\\{teams_app}.mp4"
+                    )
+                    moved = True
+                except Exception as e:
+                    print (f"Could not rename: {e}") 
+                    time.sleep(1) 
+            print ("Recording file renamed successfully.")
+
+            # Switch to scene to record
+            keyboard.press('control+windows+shift+alt+f1')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+alt+f1')
+
+        was_teams_running = is_teams_running
+        time.sleep(3)   
+
 # Cargar una imagen para el icono
 def crear_icono():
     image = Image.open("icono.png")  # Reemplaza con tu icono
@@ -308,9 +427,13 @@ def crear_icono():
 
     # Iniciar el proceso en segundo plano
     hilo = threading.Thread(target=monitor_window_focus, daemon=True)
+    hilo_teams = threading.Thread(target=check_teams_window, daemon=True)
+
     hilo.start()
+    hilo_teams.start()
 
     icon.run()
+
 
 if __name__ == "__main__":
 
@@ -321,7 +444,7 @@ if __name__ == "__main__":
 
     # Lanzar WSL oculto
     p = subprocess.Popen(
-        ["wscript.exe", "C:\\Users\\raul.mzabala\\Local data\\scripts\"\wsl_hidden.vbs"],
+        ["wscript.exe", "C:\\Users\\raul.mzabala\\Local data\\macropad_automator\\host-scripts\\wsl_hidden.vbs"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
