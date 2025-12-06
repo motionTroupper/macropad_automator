@@ -1,9 +1,33 @@
 {
-  "monitors": {
+  
+  "monitors-casa": {
     "laptop": "0", 
     "left": "2", 
     "top-left": "1",
     "top-right": "3"
+  },
+
+  "monitors": {
+    "laptop": "0", 
+    "left": "1", 
+    "top-left": "2",
+    "top-right": "3"
+  },
+
+  "offsets-default":{
+    "x": -8,
+    "y": -1,
+    "w": 16,
+    "h": 9
+  },
+
+  "app_overrides": {
+    "code.exe": {
+      "x": 7,
+      "y": 0,
+      "w": -14,
+      "h": -8
+    }
   },
 
   "areas": {

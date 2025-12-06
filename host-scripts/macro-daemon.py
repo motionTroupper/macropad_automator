@@ -25,24 +25,34 @@ import psutil
 import uuid
 import traceback
 import msvcrt
+import socket
 
 
 latest_window = ''
 latest_uuid = None
 was_teams_running = False
 
+APP_OVERRIDES = {}
 ZONE_DEFINITIONS = {}
 MONITOR_ALIASES = {}
+BORDER_OFFSET = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
 
 def load_zones_config():
-    global ZONE_DEFINITIONS, MONITOR_ALIASES
+    global ZONE_DEFINITIONS, MONITOR_ALIASES, BORDER_OFFSET, APP_OVERRIDES
     try:
         with open("zones.json", "r") as f:
             data = json.load(f)
             ZONE_DEFINITIONS = data.get("areas", {})
             MONITOR_ALIASES = data.get("monitors", {})
+
+            APP_OVERRIDES = data.get("app_overrides", {})
+
+            hostname = socket.gethostname()
+            offset_key = f"offsets-{hostname}"
+            BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
+
             print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas.")
     except Exception as e:
         print(f"Error cargando zones.json: {e}")
@@ -89,18 +99,16 @@ def get_monitor_rect(alias_name):
     info = win32api.GetMonitorInfo(handle)
     return info['Work'] # (left, top, right, bottom) Globales
 
-# AJUSTE FINO PARA BORDES INVISIBLES (Windows 10/11)
-# Valores típicos: Left/Right = 7px, Bottom = 7px. Top = 0px.
-# Esto hace que la ventana sea un poco más grande para ocultar la sombra.
-BORDER_OFFSET = {
-    "x": -8,   # Mover a la izquierda para comerse el borde izq
-    "y": -1,    # Arriba suele estar bien (la barra de título es sólida)
-    "w": 16,   # Sumar 7 de izq + 7 de der
-    "h": 9     # Sumar 9 de abajo
-}
+def get_process_name(hwnd):
+    try:
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        proc = psutil.Process(pid)
+        return proc.name().lower()
+    except:
+        return ""
 
 def move_window_to_zone(zone_key):
-    global TEAMS_TOP, TEAMS_LEFT
+    global TEAMS_TOP, TEAMS_LEFT, BORDER_OFFSET
 
     zone = ZONE_DEFINITIONS.get(zone_key)
     if not zone:
@@ -109,6 +117,19 @@ def move_window_to_zone(zone_key):
 
     hwnd = win32gui.GetForegroundWindow()
     if not hwnd: return
+
+    app_name = get_process_name(hwnd)
+    app_adj = APP_OVERRIDES.get(app_name, {})
+
+    print (f"adjustments for {app_name}: {app_adj}")
+
+    placement = win32gui.GetWindowPlacement(hwnd)
+    is_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
+    is_minimized = (placement[1] == win32con.SW_SHOWMINIMIZED) # O win32gui.IsIconic(hwnd)
+
+    if is_maximized or is_minimized:
+        # La restauramos a "Normal" (ventana flotante) antes de moverla
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
     # 1. Obtener monitores
     start_rect = get_monitor_rect(zone['monitor'])
@@ -139,11 +160,10 @@ def move_window_to_zone(zone_key):
     # 3. APLICAR CORRECCIÓN DE BORDES (FUDGE FACTOR)
     # Solo aplicamos corrección si la ventana toca los bordes? 
     # Generalmente se aplica siempre para que las ventanas adyacentes se toquen visualmente.
-    
-    final_x = raw_x + BORDER_OFFSET["x"]
-    final_y = raw_y + BORDER_OFFSET["y"]
-    final_w = raw_w + BORDER_OFFSET["w"]
-    final_h = raw_h + BORDER_OFFSET["h"]
+    final_x = raw_x + BORDER_OFFSET["x"] + app_adj.get("x",0)
+    final_y = raw_y + BORDER_OFFSET["y"] + app_adj.get("y",0)
+    final_w = raw_w + BORDER_OFFSET["w"] + app_adj.get("w",0)
+    final_h = raw_h + BORDER_OFFSET["h"] + app_adj.get("h",0)
 
     # Seguridad: Si maximizas (0-100%), a veces es mejor usar el comando nativo de maximizar
     # Pero si es multi-monitor (span), usamos MoveWindow.
