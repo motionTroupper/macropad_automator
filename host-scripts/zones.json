@@ -27,14 +27,16 @@
   "areas": {
     "top-left": {
       "monitor": "top-left",
+      "monitor_end": "top-right",
       "min_x": 0,
-      "max_x": 100,
+      "max_x": 50,
       "min_y": 0,
       "max_y": 100
     },
     "top-right": {
-      "monitor": "top-right",
-      "min_x": 0,
+      "monitor": "top-left",
+      "monitor_end": "top-right",
+      "min_x": 50,
       "max_x": 100,
       "min_y": 0,
       "max_y": 100

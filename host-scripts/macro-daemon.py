@@ -174,7 +174,7 @@ def get_process_name(hwnd):
         return proc.name().lower()
     except:
         return ""
-
+    
 def move_window_to_zone(zone_key):
     global TEAMS_TOP, TEAMS_LEFT, BORDER_OFFSET
 
@@ -186,66 +186,71 @@ def move_window_to_zone(zone_key):
     hwnd = win32gui.GetForegroundWindow()
     if not hwnd: return
 
-    app_name = get_process_name(hwnd)
-    app_adj = APP_OVERRIDES.get(app_name, {})
-
-    print (f"adjustments for {app_name}: {app_adj}")
-
+    # --- RESTAURAR SI MAXIMIZADA ---
     placement = win32gui.GetWindowPlacement(hwnd)
     is_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
-    is_minimized = (placement[1] == win32con.SW_SHOWMINIMIZED) # O win32gui.IsIconic(hwnd)
+    is_minimized = (placement[1] == win32con.SW_SHOWMINIMIZED)
 
     if is_maximized or is_minimized:
-        # La restauramos a "Normal" (ventana flotante) antes de moverla
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
+    # --- 1. OBTENER MONITOR DE INICIO (OBLIGATORIO) ---
     start_rect = get_monitor_rect_by_alias(zone['monitor'])
-    if not start_rect: return
+    if not start_rect: 
+        print(f"Monitor de inicio '{zone['monitor']}' no encontrado.")
+        return
     
+    # --- 2. OBTENER MONITOR DE FIN (OPCIONAL / FALLBACK) ---
     end_alias = zone.get('monitor_end', zone['monitor'])
     end_rect = get_monitor_rect_by_alias(end_alias)
-    if not end_rect: return
 
-    # Geometría monitores
-    s_left, s_top, s_right, s_bottom = start_rect
-    s_width, s_height = (s_right - s_left), (s_bottom - s_top)
+    # AQUÍ ESTÁ LA MAGIA DEL FALLBACK:
+    if end_rect:
+        # Escenario Casa: Ambos monitores existen
+        # Calculamos la unión de ambos
+        s_left, s_top, s_right, s_bottom = start_rect
+        e_left, e_top, e_right, e_bottom = end_rect
+        
+        canvas_left = min(s_left, e_left)
+        canvas_top = min(s_top, e_top)
+        canvas_right = max(s_right, e_right)
+        canvas_bottom = max(s_bottom, e_bottom)
+        # print(f"Dual Monitor Mode: {zone['monitor']} -> {end_alias}")
+    else:
+        # Escenario Trabajo: El monitor final no está conectado
+        # Degradamos suavemente: El lienzo total es SOLO el monitor de inicio
+        canvas_left, canvas_top, canvas_right, canvas_bottom = start_rect
+        print(f"Single Monitor Fallback: '{end_alias}' no detectado. Usando solo '{zone['monitor']}'.")
 
-    e_left, e_top, e_right, e_bottom = end_rect
-    e_width, e_height = (e_right - e_left), (e_bottom - e_top)
+    canvas_width = canvas_right - canvas_left
+    canvas_height = canvas_bottom - canvas_top
 
-    # 2. CALCULAR PÍXELES TEÓRICOS (Lógica de % original)
-    raw_x = s_left + int(s_width * (zone['min_x'] / 100))
-    raw_y = s_top + int(s_height * (zone['min_y'] / 100))
+    # --- 3. CALCULAR COORDENADAS ---
+    # Los porcentajes se aplican sobre el canvas calculado (sea doble o simple)
     
-    # El punto final X2/Y2 se calcula sobre el monitor de destino
-    raw_x2 = e_left + int(e_width * (zone['max_x'] / 100))
-    raw_y2 = e_top + int(e_height * (zone['max_y'] / 100))
+    raw_x = canvas_left + int(canvas_width * (zone['min_x'] / 100))
+    raw_y = canvas_top + int(canvas_height * (zone['min_y'] / 100))
+    
+    raw_x2 = canvas_left + int(canvas_width * (zone['max_x'] / 100))
+    raw_y2 = canvas_top + int(canvas_height * (zone['max_y'] / 100))
 
     raw_w = raw_x2 - raw_x
     raw_h = raw_y2 - raw_y
 
-    # 3. APLICAR CORRECCIÓN DE BORDES (FUDGE FACTOR)
-    # Solo aplicamos corrección si la ventana toca los bordes? 
-    # Generalmente se aplica siempre para que las ventanas adyacentes se toquen visualmente.
+    # --- 4. APLICAR CORRECCIÓN DE BORDES Y OVERRIDES ---
+    app_name = get_process_name(hwnd)
+    app_adj = APP_OVERRIDES.get(app_name, {})
+
     final_x = raw_x + BORDER_OFFSET["x"] + app_adj.get("x",0)
     final_y = raw_y + BORDER_OFFSET["y"] + app_adj.get("y",0)
     final_w = raw_w + BORDER_OFFSET["w"] + app_adj.get("w",0)
     final_h = raw_h + BORDER_OFFSET["h"] + app_adj.get("h",0)
 
-    # Seguridad: Si maximizas (0-100%), a veces es mejor usar el comando nativo de maximizar
-    # Pero si es multi-monitor (span), usamos MoveWindow.
-    
-    # 4. EJECUTAR
+    # --- 5. EJECUTAR ---
     try:
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        
         win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
         win32gui.SetForegroundWindow(hwnd)
-        print(f"Posicionado en zona {zone_key} en monitor {zone['monitor']}")
-        print(f"Desde ({raw_x},{raw_y}) {raw_w}x{raw_h} a ({final_x},{final_y}) {final_w}x{final_h} con bordes")
-        print(f"Movido con ajuste de bordes: {final_w}x{final_h}")
-
+        
         if zone.get("is_teams_zone", False):
             TEAMS_LEFT = final_x
             TEAMS_TOP = final_y
