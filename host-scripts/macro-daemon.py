@@ -26,157 +26,20 @@ import uuid
 import traceback
 import msvcrt
 import socket
+import hashlib
 
 
-latest_window = ''
 latest_uuid = None
 was_teams_running = False
+serial_port = None
 
 APP_OVERRIDES = {}
 ZONE_DEFINITIONS = {}
 MONITOR_ALIASES = {}
 BORDER_OFFSET = {}
+HARDWARE_ID_MAP = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
-
-
-import hashlib
-
-def get_monitor_signature():
-    """
-    Genera un hash único basado en los IDs de hardware de los monitores conectados.
-    Esto permite distinguir 'Casa' de 'Oficina' aunque el PC sea el mismo.
-    """
-    display_devices = []
-    i = 0
-    while True:
-        try:
-            # Obtener adaptador de pantalla
-            device = win32api.EnumDisplayDevices(None, i, 0)
-            if device.StateFlags & win32con.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
-                # Obtener el monitor real conectado a ese adaptador
-                # (DeviceID suele contener el modelo y número de serie)
-                try:
-                    monitor = win32api.EnumDisplayDevices(device.DeviceName, 0, 0)
-                    device_id = monitor.DeviceID
-                    # Ejemplo de ID: MONITOR\DEL4044\{GUID}...
-                    # Nos quedamos con la parte del modelo (ej: DEL4044) para que sea legible
-                    # O usamos todo el string para máxima seguridad.
-                    display_devices.append(device_id)
-                except:
-                    pass # Adaptador virtual o sin monitor físico detectado
-            i += 1
-        except:
-            break
-    
-    # Ordenamos para que no importe en qué puerto conectas cada uno
-    display_devices.sort()
-    
-    # Creamos un string único
-    signature_raw = "|".join(display_devices)
-    
-    # Opción A: Usar un hash corto (MD5)
-    signature_hash = hashlib.md5(signature_raw.encode()).hexdigest()[:8]
-    
-    return signature_raw, signature_hash
-
-def get_monitor_signature():
-    """
-    Genera un hash único basado en los IDs de hardware de los monitores conectados.
-    Esto permite distinguir 'Casa' de 'Oficina' aunque el PC sea el mismo.
-    """
-    display_devices = []
-    i = 0
-    while True:
-        try:
-            # Obtener adaptador de pantalla
-            device = win32api.EnumDisplayDevices(None, i, 0)
-            if device.StateFlags & win32con.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP:
-                # Obtener el monitor real conectado a ese adaptador
-                # (DeviceID suele contener el modelo y número de serie)
-                try:
-                    monitor = win32api.EnumDisplayDevices(device.DeviceName, 0, 0)
-                    device_id = monitor.DeviceID
-                    # Ejemplo de ID: MONITOR\DEL4044\{GUID}...
-                    # Nos quedamos con la parte del modelo (ej: DEL4044) para que sea legible
-                    # O usamos todo el string para máxima seguridad.
-                    display_devices.append(device_id)
-                except:
-                    pass # Adaptador virtual o sin monitor físico detectado
-            i += 1
-        except:
-            break
-    
-    # Ordenamos para que no importe en qué puerto conectas cada uno
-    display_devices.sort()
-    
-    # Creamos un string único
-    signature_raw = "|".join(display_devices)
-    
-    # Opción A: Usar un hash corto (MD5)
-    signature_hash = hashlib.md5(signature_raw.encode()).hexdigest()[:8]
-    
-    return signature_raw, signature_hash
-
-def load_zones_config():
-    global ZONE_DEFINITIONS, MONITOR_ALIASES, BORDER_OFFSET, APP_OVERRIDES
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(script_dir, "zones.json")
-        
-        with open(json_path, "r") as f:
-            data = json.load(f)
-            ZONE_DEFINITIONS = data.get("areas", {})
-            APP_OVERRIDES = data.get("app_overrides", {})
-
-            # 1. Obtener Datos del Entorno
-            hostname = socket.gethostname()
-            sig_raw, sig_hash = get_monitor_signature()
-            
-            print(f"--- DIAGNÓSTICO DE ENTORNO ---")
-            print(f"Hostname:  {hostname}")
-            print(f"Monitores: {sig_raw}")
-            print(f"Signature: {sig_hash}")
-            print(f"------------------------------")
-
-            # 2. LÓGICA DE PRIORIDAD DE MONITORES
-            # Prioridad 1: Configuración específica por Firma de Monitores (Ubicación física)
-            mon_key_sig = f"monitors-{hostname}-{sig_hash}"
-            
-            # Prioridad 2: Configuración por Hostname (Disco duro)
-            mon_key_host = f"monitors-{hostname}"
-            
-            if mon_key_sig in data:
-                MONITOR_ALIASES = data[mon_key_sig]
-                print(f"-> CARGADO: Perfil de Ubicación (Firma: {hostname}-{sig_hash})")
-            elif mon_key_host in data:
-                MONITOR_ALIASES = data[mon_key_host]
-                print(f"-> CARGADO: Perfil de Hostname ({hostname})")
-            else:
-                MONITOR_ALIASES = data.get("monitors", {})
-                print(f"-> CARGADO: Perfil Genérico (Default)")
-
-            # 3. LÓGICA DE OFFSETS (Bordes)
-            # Aquí solemos querer el Hostname (porque depende de la configuración de Windows/DPI del SO actual)
-            # Pero podrías usar también la firma si quisieras.
-            offset_key = f"offsets-{hostname}"
-            BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
-
-            print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas.")
-
-    except Exception as e:
-        print(f"Error cargando zones.json: {e}")
-        traceback.print_exc()
-
-load_zones_config()
-
-
-# Cambiar al directorio donde está el script
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-# Configurar el puerto COM4
-ser = None
-KLF_ACTIVATE = 0x00000001
 
 layouts = {
     "EN": 67699721,
@@ -198,17 +61,111 @@ running_config={}
 configs={}
 toggles={}
 
-def get_monitor_rect(alias_name):
-    # Función auxiliar para obtener la geometría de un monitor por su alias
-    idx = int(MONITOR_ALIASES.get(alias_name, -1))
-    if idx == -1: return None
 
+def print_monitor_ids():
+    print("\n--- ESCANEANDO MONITORES CONECTADOS ---")
     monitors = win32api.EnumDisplayMonitors()
-    if idx >= len(monitors): return None
+    for i, (hMonitor, hdc, rect) in enumerate(monitors):
+        monitor_info = win32api.GetMonitorInfo(hMonitor)
+        adapter_name = monitor_info['Device']
+        
+        try:
+            # Obtenemos el dispositivo MONITOR asociado al adaptador
+            # El segundo 0 es el índice del monitor en ese adaptador
+            device = win32api.EnumDisplayDevices(adapter_name, 0, 0)
+            device_id = device.DeviceID
+            print(f"Monitor {i}:")
+            print(f"  Handle: {hMonitor}")
+            print(f"  Adapter: {adapter_name}")
+            print(f"  DeviceID: {device_id}") # <--- ESTO ES LO QUE NECESITAS COPIAR
+        except Exception as e:
+            print(f"  Error leyendo ID: {e}")
+    print("---------------------------------------\n")
 
-    handle = monitors[idx][0]
-    info = win32api.GetMonitorInfo(handle)
-    return info['Work'] # (left, top, right, bottom) Globales
+
+def load_zones_config():
+    global ZONE_DEFINITIONS, HARDWARE_ID_MAP, BORDER_OFFSET, APP_OVERRIDES
+    try:
+        with open("zones.json", "r") as f:
+            data = json.load(f)
+            ZONE_DEFINITIONS = data.get("areas", {})
+            HARDWARE_ID_MAP = data.get("hardware_mapping", {}) # <--- NUEVO
+            APP_OVERRIDES = data.get("app_overrides", {})
+
+            hostname = socket.gethostname()
+            offset_key = f"offsets-{hostname}"
+            BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
+
+            print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas y {len(HARDWARE_ID_MAP)} monitores hardware.")
+    except Exception as e:
+        print(f"Error cargando zones.json: {e}")
+
+def get_monitor_rect_by_alias(target_alias):
+    """
+    Busca el monitor físico.
+    1. Busca coincidencia exacta de Hardware ID.
+    2. FALLBACK: Si no encuentra el exacto, busca cualquier monitor NO mapeado 
+       (útil para proyectores o TVs en salas de reuniones).
+    """
+    
+    # 1. ¿A quién buscamos oficialmente?
+    target_hw_id_part = None
+    for hw_id, alias in HARDWARE_ID_MAP.items():
+        if alias == target_alias:
+            target_hw_id_part = hw_id
+            break
+    
+    # Lista para guardar lo que hay conectado ahora mismo
+    current_monitors = []
+    
+    # 2. Escanear qué hay conectado
+    monitors = win32api.EnumDisplayMonitors()
+    for hMonitor, hdc, rect in monitors:
+        try:
+            monitor_info = win32api.GetMonitorInfo(hMonitor)
+            adapter_name = monitor_info['Device']
+            device = win32api.EnumDisplayDevices(adapter_name, 0, 0)
+            real_device_id = device.DeviceID # MONITOR\DEL4063\{guid}
+            
+            # Guardamos tupla (ID, Rectángulo)
+            current_monitors.append((real_device_id, monitor_info['Work']))
+        except:
+            continue
+
+    # 3. INTENTO A: Búsqueda Exacta
+    if target_hw_id_part:
+        for dev_id, work_rect in current_monitors:
+            if target_hw_id_part in dev_id:
+                # ¡Encontrado el legítimo dueño!
+                return work_rect
+
+    # 4. INTENTO B: El "Truco" (Fallback al monitor desconocido)
+    # Solo aplicamos esto si estábamos buscando un monitor externo (target_alias existe)
+    # y no lo hemos encontrado arriba.
+    
+    if target_alias: 
+        print(f"Monitor oficial para '{target_alias}' no encontrado. Buscando monitor extraño...")
+        
+        # Recopilamos todos los IDs conocidos de tu JSON para no usarlos por error
+        known_ids = list(HARDWARE_ID_MAP.keys())
+        
+        for dev_id, work_rect in current_monitors:
+            # ¿Es este monitor 'dev_id' uno de los míos conocidos?
+            is_known = False
+            for kid in known_ids:
+                if kid in dev_id:
+                    is_known = True
+                    break
+            
+            if not is_known:
+                # ¡AJÁ! Es un monitor no mapeado (Proyector, TV, etc.)
+                # Lo tratamos como si fuera el target
+                print(f"FALLBACK: Asignando monitor desconocido ({dev_id}) a '{target_alias}'")
+                return work_rect
+
+    print(f"Monitor para '{target_alias}' no encontrado ni reemplazable.")
+    return None
+
 
 def get_process_name(hwnd):
     try:
@@ -242,12 +199,11 @@ def move_window_to_zone(zone_key):
         # La restauramos a "Normal" (ventana flotante) antes de moverla
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
-    # 1. Obtener monitores
-    start_rect = get_monitor_rect(zone['monitor'])
+    start_rect = get_monitor_rect_by_alias(zone['monitor'])
     if not start_rect: return
     
     end_alias = zone.get('monitor_end', zone['monitor'])
-    end_rect = get_monitor_rect(end_alias)
+    end_rect = get_monitor_rect_by_alias(end_alias)
     if not end_rect: return
 
     # Geometría monitores
@@ -450,7 +406,7 @@ def type_chars(cadena):
 def toggle_key(toggle_name):
     global toggles
     global running_config
-    global ser
+    global serial_port 
 
     print ("toggle key called for "+toggle_name)
 
@@ -470,13 +426,13 @@ def toggle_key(toggle_name):
         time.sleep(0.05)
         keyboard.release(stroke)
     command = json.dumps(running_config) + '\n'
-    ser.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
+    serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
 
 
 # Función principal que monitorea el cambio de ventana 
 def monitor_window_focus():
     global configs
-    global ser
+    global serial_port
     global splits
     global running_config
     while True:
@@ -484,14 +440,14 @@ def monitor_window_focus():
             configs = {}
             current_program = ''
 
-            if ser:
-                ser.close()
-                ser = None
+            if serial_port:
+                serial_port.close()
+                serial_port = None
 
-            ser = serial.Serial('COM4', 115200, timeout=1)  
+            serial_port = serial.Serial('COM4', 115200, timeout=1)  
             while True:
-                if ser.in_waiting:
-                    data = json.loads(ser.readline().decode('utf-8').strip())
+                if serial_port.in_waiting:
+                    data = json.loads(serial_port.readline().decode('utf-8').strip())
                     print(f"{data} received")
                     if data['code'][:5]=='OPEN:':
                         app = data['code'][5:]
@@ -524,7 +480,7 @@ def monitor_window_focus():
                     current_program = active_program
                     running_config = lookup_config(active_program)
                     command = json.dumps(running_config) + '\n'
-                    ser.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
+                    serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
                     if current_program!='explorer.exe' and running_config.get('layout'):
                         cambiar_layout(running_config['layout'],False)
 
@@ -534,11 +490,11 @@ def monitor_window_focus():
             print(f"Process failed {ex}")
         finally:
             try:
-                if ser and ser.is_open:
-                    ser.close()
+                if serial_port and serial_port.is_open:
+                    serial_port.close()
             except Exception as e:
                 pass
-            ser = None
+            serial_port = None
             time.sleep(5)
 
 # Función para salir del programa
@@ -680,6 +636,12 @@ def crear_icono():
 
 if __name__ == "__main__":
 
+    # Cambiar al directorio donde está el script
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+    print_monitor_ids()
+    load_zones_config()
+
     # Flags de Windows para lanzar el proceso sin ventana y desacoplado
     DETACHED_PROCESS         = 0x00000008
     CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -696,6 +658,7 @@ if __name__ == "__main__":
         stderr=subprocess.DEVNULL,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     )
+
 
     print(f"WSL lanzado con PID {p.pid}, ejecutando sleep infinity")
     crear_icono()

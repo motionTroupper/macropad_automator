@@ -1,19 +1,13 @@
 {
+  "hardware_mapping": {
+    "SAM7119": "top-left", 
+    "SAM711A": "top-right",
+
+    "SAM1018": "left",    
+
+    "BOE0BC9": "laptop"
+  },
   
-  "monitors-olivetti-b8398e89": {
-    "laptop": "0", 
-    "left": "2", 
-    "top-left": "1",
-    "top-right": "3"
-  },
-
-  "monitors": {
-    "laptop": "0", 
-    "left": "1", 
-    "top-left": "2",
-    "top-right": "3"
-  },
-
   "offsets-default":{
     "x": -8,
     "y": -1,
