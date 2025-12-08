@@ -40,6 +40,7 @@ BORDER_OFFSET = {}
 HARDWARE_ID_MAP = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
+APP_LAYOUTS = {}
 
 layouts = {
     "EN": 67699721,
@@ -101,13 +102,6 @@ def load_zones_config():
         print(f"Error cargando zones.json: {e}")
 
 def get_monitor_rect_by_alias(target_alias):
-    """
-    Busca el monitor físico.
-    1. Busca coincidencia exacta de Hardware ID.
-    2. FALLBACK: Si no encuentra el exacto, busca cualquier monitor NO mapeado 
-       (útil para proyectores o TVs en salas de reuniones).
-    """
-    
     # 1. ¿A quién buscamos oficialmente?
     target_hw_id_part = None
     for hw_id, alias in HARDWARE_ID_MAP.items():
@@ -268,22 +262,23 @@ def obtener_layout_actual():
     return layout_id
 
 
-def cambiar_layout(layout,recheck):
-    curr_layout = obtener_layout_actual()
-    if curr_layout != layouts.get(layout,None):
-        if recheck:
-            time.sleep(0.1)
-            cambiar_layout(layout,False)
-        else:
-            print (f"Cambiando layout a {layout} desde {curr_layout}")
-            keyboard.press_and_release('windows+space')
+def cambiar_layout(required_layout):
+    print (f"Cambiando layout a {required_layout}")
+    keyboard.press('windows+space')
+    time.sleep(0.05)
+    keyboard.release('windows+space')
 
 def open_window(filtro_regex):
     if ',' in filtro_regex:
         parts = filtro_regex.split(',')
-        cambiar_layout(parts[0],True)
+
+        required_layout = layouts.get(parts[0], None)
+        current_layout = obtener_layout_actual()
+
+        if required_layout and required_layout != current_layout:
+            cambiar_layout(required_layout)
+
         filtro_regex = parts[1]
-        time.sleep(0.1)
 
     if filtro_regex not in programs:
         print (f"Program {filtro_regex} was not recognized")
@@ -440,10 +435,11 @@ def monitor_window_focus():
     global serial_port
     global splits
     global running_config
+    global APP_LAYOUTS
     while True:
         try:
             configs = {}
-            current_program = ''
+            prev_program = ''
 
             if serial_port:
                 serial_port.close()
@@ -481,13 +477,24 @@ def monitor_window_focus():
                 elif active_program == 'msrdc.exe':
                     active_program = active_window
 
-                if  active_program != current_program:
-                    current_program = active_program
+                if  active_program != prev_program:
+                    # Save current layout for previous program
+                    running_layout = obtener_layout_actual()
+                    APP_LAYOUTS[prev_program] = running_layout
+
+                    # Switch to new program
+                    prev_program = active_program
+
+                    # Load new config and send to pad
                     running_config = lookup_config(active_program)
                     command = json.dumps(running_config) + '\n'
                     serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
-                    if current_program!='explorer.exe' and running_config.get('layout'):
-                        cambiar_layout(running_config['layout'],False)
+
+                    # Change keyboard layout if needed
+                    if active_program!='explorer.exe':
+                        new_layout = APP_LAYOUTS.get(active_program,layouts.get(running_config['layout'],None))
+                        if new_layout and new_layout != running_layout:
+                            cambiar_layout(new_layout)
 
                 time.sleep(0.5)  # Espera un poco antes de volver a comprobar
 
