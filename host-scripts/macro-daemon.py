@@ -42,6 +42,7 @@ HARDWARE_ID_MAP = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
 APP_LAYOUTS = {}
+SWITCHED_LAYOUTS = {}
 
 layouts = {
     "EN": 67699721,
@@ -314,6 +315,7 @@ def open_window(filtro_regex):
     required_layout = layouts.get(parts[0], None)
     current_layout = obtener_layout_actual()
     if required_layout and required_layout != current_layout:
+        print (f"Changing layout for opened app to {required_layout}")
         cambiar_layout(required_layout)
 
 # Función para obtener el nombre de la ventana activa
@@ -433,11 +435,8 @@ def toggle_key(toggle_name):
 
 # Función principal que monitorea el cambio de ventana 
 def monitor_window_focus():
-    global configs
-    global serial_port
-    global splits
-    global running_config
-    global APP_LAYOUTS
+    global configs, serial_port, splits, running_config, APP_LAYOUTS, SWITCHED_LAYOUTS
+
     while True:
         try:
             configs = {}
@@ -480,11 +479,15 @@ def monitor_window_focus():
                     active_program = active_window
 
                 if  active_program != prev_program:
+                    ## Prevent fast switching layouts
+                    SWITCHED_LAYOUTS[active_program]= False
+
                     # Save current layout for previous program
                     running_layout = obtener_layout_actual()
 
-                    # Only save if layout has been reset
-                    if APP_LAYOUTS.get(prev_program,None) is None:
+                    ## Save layout for previous program
+                    if SWITCHED_LAYOUTS.get(prev_program,False):
+                        print (f"Saving layout {running_layout} for {prev_program}")
                         APP_LAYOUTS[prev_program] = running_layout
 
                     # Switch to new program
@@ -499,8 +502,10 @@ def monitor_window_focus():
                     if active_program!='explorer.exe':
                         new_layout = APP_LAYOUTS.get(active_program,layouts.get(running_config['layout'],None))
                         if new_layout and new_layout != running_layout:
+                            print (f"Switching layout to {new_layout} for {active_program}")
                             cambiar_layout(new_layout)
-                    APP_LAYOUTS[active_program] = None
+
+                        SWITCHED_LAYOUTS[active_program]=True
 
                 time.sleep(0.5)  # Espera un poco antes de volver a comprobar
 
