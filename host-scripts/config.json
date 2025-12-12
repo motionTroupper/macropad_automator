@@ -266,8 +266,8 @@
             "e1":"\\f",
             "e2":"\\g",
 
-            "e3":"MSG:TYPE:#UUID#",
-            "e4":"MSG:TYPE:#NEW_UUID##UUID#",
+            "e3":"MSG:TYPE:#NEW_UUID##UUID#",
+            "e4":"MSG:TYPE:#UUID#",
 
             "f1":"\\C\\H",
             "f2":"\\H",
