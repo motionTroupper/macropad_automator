@@ -118,6 +118,10 @@
     },
     ".":{
         "layout":"EN",
+        "layouts": {
+            "EN": 67699721,
+            "ES": 67767306
+        },
         "programs":{
             "chrome":{
                 "program":"chrome.exe --new-tab about:blank",
