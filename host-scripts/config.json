@@ -239,6 +239,9 @@
             "f3-f4":"MSG:SCREEN:laptop-right",
             "f2-f3":"MSG:SCREEN:laptop-full",
 
+            "e4-f4":"\\G",
+            "e3-f3":"\\F",
+
             "c4":"blue",
 
             "e1":"\\f",
