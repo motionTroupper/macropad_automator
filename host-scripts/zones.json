@@ -2,10 +2,11 @@
   "hardware_mapping": {
     "SAM7119": "top-left", 
     "SAM711A": "top-right",
-
     "SAM1018": "left",    
-
-    "BOE0BC9": "laptop"
+    "BOE0BC9": "laptop",
+    "PHLC17B_0": "top-left",
+    "PHLC17B_1": "top-right",
+    "ACR0522": "left"
   },
   
   "offsets-default":{

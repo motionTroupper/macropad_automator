@@ -83,6 +83,20 @@ def print_monitor_ids():
             print(f"  Error leyendo ID: {e}")
     print("---------------------------------------\n")
 
+def active_monitors():
+    monitors = win32api.EnumDisplayMonitors()
+    active_monitors = []
+    for hMonitor, hdc, rect in monitors:
+        try:
+            monitor_info = win32api.GetMonitorInfo(hMonitor)
+            adapter_name = monitor_info['Device']
+            device = win32api.EnumDisplayDevices(adapter_name, 0, 0)
+            real_device_id = device.DeviceID
+            active_monitors.append((real_device_id.split('\\')[1], monitor_info['Work']))
+        except Exception as e:
+            print(f"Error al obtener información del monitor: {e}")
+    return active_monitors
+
 
 def load_zones_config():
     global ZONE_DEFINITIONS, HARDWARE_ID_MAP, BORDER_OFFSET, APP_OVERRIDES
@@ -102,48 +116,36 @@ def load_zones_config():
         print(f"Error cargando zones.json: {e}")
 
 def get_monitor_rect_by_alias(target_alias):
-    # 1. ¿A quién buscamos oficialmente?
+
+    # Lookup the monitor rectangle by its alias
+    global HARDWARE_ID_MAP
     target_hw_id_part = None
+    active_monitors_list = active_monitors()
     for hw_id, alias in HARDWARE_ID_MAP.items():
+        # Allow same monitor with multiple indices
+        hw_id = hw_id.split('_')[0]  
+
+        # Discard monitors that are not currently active
+        if hw_id not in [dev_id for dev_id, _ in active_monitors_list]:
+            continue
+        # Look for the target
         if alias == target_alias:
             target_hw_id_part = hw_id
             break
     
-    # Lista para guardar lo que hay conectado ahora mismo
-    current_monitors = []
-    
-    # 2. Escanear qué hay conectado
-    monitors = win32api.EnumDisplayMonitors()
-    for hMonitor, hdc, rect in monitors:
-        try:
-            monitor_info = win32api.GetMonitorInfo(hMonitor)
-            adapter_name = monitor_info['Device']
-            device = win32api.EnumDisplayDevices(adapter_name, 0, 0)
-            real_device_id = device.DeviceID # MONITOR\DEL4063\{guid}
-            
-            # Guardamos tupla (ID, Rectángulo)
-            current_monitors.append((real_device_id, monitor_info['Work']))
-        except:
-            continue
-
-    # 3. INTENTO A: Búsqueda Exacta
+    ## Try to find the monitor by its hardware ID part
     if target_hw_id_part:
-        for dev_id, work_rect in current_monitors:
+        for dev_id, work_rect in active_monitors_list:
             if target_hw_id_part in dev_id:
                 # ¡Encontrado el legítimo dueño!
                 return work_rect
-
-    # 4. INTENTO B: El "Truco" (Fallback al monitor desconocido)
-    # Solo aplicamos esto si estábamos buscando un monitor externo (target_alias existe)
-    # y no lo hemos encontrado arriba.
-    
+            
+    # If not found, try to fallback to any unknown monitor
     if target_alias: 
         print(f"Monitor oficial para '{target_alias}' no encontrado. Buscando monitor extraño...")
         
-        # Recopilamos todos los IDs conocidos de tu JSON para no usarlos por error
         known_ids = list(HARDWARE_ID_MAP.keys())
-        
-        for dev_id, work_rect in current_monitors:
+        for dev_id, work_rect in active_monitors_list:
             # ¿Es este monitor 'dev_id' uno de los míos conocidos?
             is_known = False
             for kid in known_ids:
@@ -152,8 +154,6 @@ def get_monitor_rect_by_alias(target_alias):
                     break
             
             if not is_known:
-                # ¡AJÁ! Es un monitor no mapeado (Proyector, TV, etc.)
-                # Lo tratamos como si fuera el target
                 print(f"FALLBACK: Asignando monitor desconocido ({dev_id}) a '{target_alias}'")
                 return work_rect
 
@@ -272,11 +272,6 @@ def open_window(filtro_regex):
     if ',' in filtro_regex:
         parts = filtro_regex.split(',')
 
-        required_layout = layouts.get(parts[0], None)
-        current_layout = obtener_layout_actual()
-
-        if required_layout and required_layout != current_layout:
-            cambiar_layout(required_layout)
 
         filtro_regex = parts[1]
 
@@ -302,6 +297,7 @@ def open_window(filtro_regex):
     win32gui.EnumWindows(callback, ventanas)
     if len(ventanas)==0:
         subprocess.Popen(f"start {program_name}", shell=True)
+        time.sleep(1)  # Esperar un momento para que la ventana se abra
     else:
         for hwnd in ventanas:
             if hwnd == win32gui.GetForegroundWindow():
@@ -316,6 +312,12 @@ def open_window(filtro_regex):
                 win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
                 time.sleep(0.1)
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+    ## Cambiar layout si es necesario 
+    required_layout = layouts.get(parts[0], None)
+    current_layout = obtener_layout_actual()
+    if required_layout and required_layout != current_layout:
+        cambiar_layout(required_layout)
 
 # Función para obtener el nombre de la ventana activa
 def get_active_window():
@@ -480,7 +482,10 @@ def monitor_window_focus():
                 if  active_program != prev_program:
                     # Save current layout for previous program
                     running_layout = obtener_layout_actual()
-                    APP_LAYOUTS[prev_program] = running_layout
+
+                    # Only save if layout has been reset
+                    if APP_LAYOUTS.get(prev_program,None) is None:
+                        APP_LAYOUTS[prev_program] = running_layout
 
                     # Switch to new program
                     prev_program = active_program
@@ -495,6 +500,7 @@ def monitor_window_focus():
                         new_layout = APP_LAYOUTS.get(active_program,layouts.get(running_config['layout'],None))
                         if new_layout and new_layout != running_layout:
                             cambiar_layout(new_layout)
+                    APP_LAYOUTS[active_program] = None
 
                 time.sleep(0.5)  # Espera un poco antes de volver a comprobar
 
