@@ -1,9 +1,11 @@
+import os
+import sys
+
 import serial
 import time
 import pystray
 from pystray import MenuItem as item, Icon
 from PIL import Image
-import sys
 import threading
 import pygetwindow as gw
 
@@ -16,7 +18,6 @@ import json
 import re
 from pathlib import Path
 import datetime
-import os
 import subprocess
 import keyboard
 
@@ -45,17 +46,6 @@ APP_LAYOUTS = {}
 layouts = {
     "EN": 67699721,
     "ES": 67767306
-}
-
-programs={
-    "chrome":{
-        "program":"chrome.exe",
-        "window":"chrome.exe"
-    },
-    "Ubuntu":{
-        "program":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
-        "window":"WindowsTerminal.exe"
-    }
 }
 
 running_config={}
@@ -269,18 +259,20 @@ def cambiar_layout(required_layout):
     keyboard.release('windows+space')
 
 def open_window(filtro_regex):
+    global layouts
+
     if ',' in filtro_regex:
         parts = filtro_regex.split(',')
-
-
         filtro_regex = parts[1]
 
+    programs = running_config.get('programs', {})
     if filtro_regex not in programs:
         print (f"Program {filtro_regex} was not recognized")
         return 
     
     program_name = programs[filtro_regex]['program']
     window_name = programs[filtro_regex]['window']
+    multiple_instances = programs[filtro_regex].get('multiple_instances',False)
 
     def callback(hwnd, lista):
         if win32gui.IsWindowVisible(hwnd):
@@ -295,23 +287,28 @@ def open_window(filtro_regex):
 
     ventanas=[]
     win32gui.EnumWindows(callback, ventanas)
+
     if len(ventanas)==0:
+        print (f"Launching program {program_name}")
         subprocess.Popen(f"start {program_name}", shell=True)
-        time.sleep(1)  # Esperar un momento para que la ventana se abra
+    elif win32gui.GetForegroundWindow() in ventanas:
+        print (f"Window for {filtro_regex} is already active")
+        if multiple_instances:
+            print (f"Launching another instance of {program_name}")
+            subprocess.Popen(f"start {program_name}", shell=True)
     else:
+        print (f"Found existing window(s) for {filtro_regex}, bringing to front")
         for hwnd in ventanas:
-            if hwnd == win32gui.GetForegroundWindow():
-                # Abrir una nueva pestana si ya está en primer plano
-                subprocess.Popen(f"start {program_name}", shell=True)
-            elif win32gui.IsIconic(hwnd):  
-                # Si la ventana está minimizada, restaurarla
+            if win32gui.IsIconic(hwnd):  
+                print (f"Restoring minimized window for {filtro_regex}")
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                time.sleep(0.1)  # Pequeña pausa para asegurar la restauración
+                continue
             else:
-                # Si no está minimizada, minimizarla y restaurarla para traerla al frente
+                print (f"Bringing to front window for {filtro_regex}")
                 win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-                time.sleep(0.1)
+                time.sleep(0.05)
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                continue
 
     ## Cambiar layout si es necesario 
     required_layout = layouts.get(parts[0], None)
@@ -377,6 +374,9 @@ def lookup_config(window_title):
 
                 if (configs[clave]).get('layout',None):
                     new_config['layout']=configs[clave]['layout']
+
+                if (configs[clave]).get('programs',None):
+                    new_config['programs']=configs[clave]['programs']
 
         # prettyprint new_config
         #print (f"Configuración compuesta: {new_config}") # en prettyprint
@@ -651,12 +651,45 @@ def crear_icono():
 
     icon.run()
 
+def kill_other_instances_same_script():
+    me = os.getpid()
+    target = os.path.abspath(sys.argv[0]).lower()
+
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            pid = p.info["pid"]
+            if pid == me:
+                continue
+
+            cmdline = p.info["cmdline"] or []
+            # Busca coincidencia exacta del script en la línea de comandos
+            if any(os.path.abspath(x).lower() == target for x in cmdline if isinstance(x, str)):
+                # Mata árbol (hijos) primero
+                for child in p.children(recursive=True):
+                    try:
+                        child.terminate()
+                    except psutil.Error:
+                        pass
+
+                try:
+                    p.terminate()  # educado
+                except psutil.Error:
+                    continue
+
+                # Si no muere rápido, kill
+                try:
+                    p.wait(timeout=2)
+                except psutil.TimeoutExpired:
+                    try:
+                        p.kill()
+                    except psutil.Error:
+                        pass
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
 
 if __name__ == "__main__":
-
-    # Cambiar al directorio donde está el script
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
+    kill_other_instances_same_script()
     print_monitor_ids()
     load_zones_config()
 

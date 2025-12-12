@@ -118,6 +118,23 @@
     },
     ".":{
         "layout":"EN",
+        "programs":{
+            "chrome":{
+                "program":"chrome.exe --new-tab about:blank",
+                "window":"chrome.exe",
+                "multiple_instances": true
+            },
+            "Ubuntu":{
+                "program":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "window":"WindowsTerminal.exe",
+                "multiple_instances": false
+            },
+            "Ubuntu-tab":{
+                "program":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "window":"WindowsTerminal.exe",
+                "multiple_instances": true
+            }
+        },
         "toggles":{
             "layouts":[
                 {
@@ -219,6 +236,8 @@
         },
         "keys":{
             "a1":"MSG:OPEN:EN,Ubuntu",
+            "a1-a2":"MSG:OPEN:EN,Ubuntu-tab",
+            "a3-a4":"MSG:OPEN:ES,chrome",
             "a2":"MSG:TOGGLE:scenes",
             "a3":"MSG:TOGGLE:camera",
             "a4":"MSG:TOGGLE:microphone",

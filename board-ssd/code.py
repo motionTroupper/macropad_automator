@@ -151,52 +151,75 @@ def matrix_paint():
             idx = MATRIX_LED_MAP[key]
             is31[idx + 2] = 0; is31[idx + 1] = 0; is31[idx + 0] = 0
 
-def process_key(key, is_pressed):
-    global pressed, MATRIX_COMMANDS, SYMBOLS, usb_serial
 
-    #print (f"Key {'Pressed' if is_pressed else 'Released'}: {key}")
+def process_strokes(code,press):
+    global keyboard, SYMBOLS
 
-    lookup_key = key
-    if len(pressed) > 1:
-        sorted_pressed = sorted(pressed)
-        lookup_key = "-".join(sorted_pressed)
-    
-    code = MATRIX_COMMANDS.get(lookup_key, None)
-
-    if not code: return
-    elif is_pressed and code.startswith("MSG:"):
-        to_send = {"key": lookup_key, "code": code[4:], "pressed": is_pressed}
-        print (f"Sending message: {to_send}")
-        if usb_serial:
-            usb_serial.write((json.dumps(to_send) + '\n').encode())
-            usb_serial.flush()
+    if not keyboard:
         return
 
-    if not keyboard: return
-    
-    # Simple macro processor
     escaped = False
     for key_char in code:
-        press = is_pressed; release = True
+        release = True
         if escaped:
             escaped = False
-            if key_char == key_char.upper(): release = False
-            else: release = True
-            if key_char.upper() =='P': time.sleep(0.15); continue
-            else: key_char = "\\" + key_char
+            if key_char == key_char.upper(): 
+                ## Make it release within sequence only if we are in release mode
+                release = not press
+            else:
+                ## Make it release within sequence only if we are in press mode
+                release = press
+            if key_char.upper() =='P': 
+                time.sleep(0.15)
+            else:  
+                key_char = "\\" + key_char
         else:
-            if key_char == '\\': escaped = True; continue
-            else: escaped = False
-
+            if key_char == '\\': 
+                escaped = True
+            else: 
+                escaped = False
         if key_char:
             symbol = SYMBOLS.get(key_char.upper(), None)
             if symbol:
                 key_code = getattr(Keycode, symbol, None)
                 if key_code:
-                    if press: keyboard.press(key_code)
-                    if release: keyboard.release(key_code)
+                    if press and not release:
+                        keyboard.press(key_code)
+                    elif press and release:
+                        keyboard.press(key_code)
+                        time.sleep(0.05)
+                        keyboard.release(key_code)
+                    elif not press and release:
+                        keyboard.release(key_code)
 
-    if not is_pressed: keyboard.release_all()
+
+def process_key(pressed, released):
+    global MATRIX_COMMANDS, SYMBOLS, usb_serial
+    sorted_pressed = sorted(pressed)
+    sorted_released = sorted(released)
+
+    ## Pressed part
+    lookup_key = "-".join(sorted_pressed)
+    code = MATRIX_COMMANDS.get(lookup_key, None)
+    if code:
+        if code.startswith("MSG:"):
+            to_send = {"key": lookup_key, "code": code[4:], "pressed": True}
+            print (f"Sending message: {to_send}")
+            if usb_serial:
+                usb_serial.write((json.dumps(to_send) + '\n').encode())
+                usb_serial.flush()
+        else:
+            process_strokes(code, True)
+    
+    ## Released part
+    lookup_key = "-".join(sorted_released)
+    code = MATRIX_COMMANDS.get(lookup_key,None)
+    if code and not code.startswith("MSG:"):
+        process_strokes(code, False)
+
+    ## Release all if nothing is pressed
+    if not pressed:
+        keyboard.release_all()
 
 def get_raw_matrix_state():
     current_state = []
@@ -253,12 +276,10 @@ while True:
             stable_set = set(stable_pressed)
             
             if raw_set != stable_set:
+                stable_pressed = list(raw_set)
                 to_press = raw_set - stable_set
                 to_release = stable_set - raw_set
-                pressed = list(raw_set)
-                for k in to_release: process_key(k, False)
-                for k in to_press: process_key(k, True)
-                stable_pressed = list(raw_set)
+                process_key(to_press, to_release)
                 
             time.sleep(0.01)
 
