@@ -483,9 +483,10 @@ def monitor_window_focus():
                     running_layout = obtener_layout_actual()
 
                     ## Save layout for previous program
-                    if LAST_SEEN_PROGRAM.get(prev_program,datetime.datetime.now()) + datetime.timedelta(seconds=2) < datetime.datetime.now():
-                        print (f"Saving layout {running_layout} for {prev_program}")
-                        APP_LAYOUTS[prev_program] = running_layout
+                    if LAST_SEEN_PROGRAM.get(prev_program,datetime.datetime.now()) + datetime.timedelta(seconds=1) < datetime.datetime.now():
+                        if APP_LAYOUTS.get(prev_program,None)!=running_layout:
+                            print (f"Saving layout {running_layout} for {prev_program}")
+                            APP_LAYOUTS[prev_program] = running_layout
                     else:
                         print (f"Not saving layout for {prev_program} due to quick switch")
 
