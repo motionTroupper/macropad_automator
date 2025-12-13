@@ -25,9 +25,7 @@ import ctypes
 import psutil
 import uuid
 import traceback
-import msvcrt
 import socket
-import hashlib
 
 
 latest_uuid = None
@@ -41,8 +39,21 @@ BORDER_OFFSET = {}
 HARDWARE_ID_MAP = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
-APP_LAYOUTS = {}
-LAST_SEEN_PROGRAM = {}
+LAYOUT_DROP_DAYS = 30
+
+## Load app layouts from json file
+APP_LAYOUTS_FILE = "./app_layouts.json"
+
+if os.path.exists(APP_LAYOUTS_FILE):
+    with open(APP_LAYOUTS_FILE, 'r') as file:
+        APP_LAYOUTS = json.load(file)
+        ## Remove layouts not used in the last 30 days
+        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=LAYOUT_DROP_DAYS)
+        APP_LAYOUTS = {app: data for app, data in APP_LAYOUTS.items() if 'last_used' in data and datetime.datetime.fromisoformat(data['last_used']) >= cutoff_date}
+else:
+    APP_LAYOUTS = {}
+
+LAST_APP_SWITCH_TIME = datetime.datetime.now()
 
 running_config={}
 configs={}
@@ -238,21 +249,32 @@ def move_window_to_zone(zone_key):
     except Exception as e:
         print(f"Error: {e}")
 
-def obtener_layout_actual():
-    # Obtiene el ID del thread con foco (ventana activa)
+def get_running_layout():
     hWnd = ctypes.windll.user32.GetForegroundWindow()
     threadID = ctypes.windll.user32.GetWindowThreadProcessId(hWnd, None)
-    # Obtiene el layout del teclado (HKL)
     hkl = ctypes.windll.user32.GetKeyboardLayout(threadID)
     layout_id = hkl & 0xFFFFFFFF
     return layout_id
 
 
-def cambiar_layout(required_layout):
-    print (f"Cambiando layout a {required_layout}")
-    keyboard.press('windows+space')
-    time.sleep(0.05)
-    keyboard.release('windows+space')
+def switch_layout(delay = 0.05):
+    required_layout = get_app_layout()
+    starting_layout = get_running_layout()
+    if starting_layout != required_layout:
+        keyboard.press('windows+space')
+        time.sleep(delay)
+        keyboard.release('windows+space')
+        print (f"Switched layout from {hex(starting_layout)} to {hex(get_running_layout())} seeking {hex(required_layout)}")
+        time.sleep(delay)
+
+    ## If not correct (fast windows switch or other issues), try again
+    required_layout = get_app_layout()
+    resulting_layout = get_running_layout()
+    if resulting_layout != required_layout:
+        print (f"Layout missed from {hex(starting_layout)} to {hex(resulting_layout)} seeking {hex(required_layout)}")
+        switch_layout(delay= delay+0.05)
+
+
 
 def open_window(filtro_regex):
 
@@ -306,11 +328,24 @@ def open_window(filtro_regex):
                 continue
 
     ## Cambiar layout si es necesario 
-    required_layout = running_config.get('layouts', {}).get(parts[0], None)
-    current_layout = obtener_layout_actual()
-    if required_layout and required_layout != current_layout:
-        print (f"Changing layout for opened app to {required_layout}")
-        cambiar_layout(required_layout)
+    switch_layout()
+
+def get_app_layout():
+    global APP_LAYOUTS
+    active_program = active_program_name()
+
+    if active_program in APP_LAYOUTS:
+        APP_LAYOUTS[active_program]['last_used'] = datetime.datetime.now().isoformat()
+    else:
+        APP_LAYOUTS[active_program]= {
+            "layout": running_config.get('layouts', {}).get(running_config['layout'],None),
+            "last_used": datetime.datetime.now().isoformat()
+        }   
+
+    return APP_LAYOUTS.get(
+        active_program,
+        None
+    )['layout']
 
 # Función para obtener el nombre de la ventana activa
 def get_active_window():
@@ -429,10 +464,51 @@ def toggle_key(toggle_name):
     command = json.dumps(running_config) + '\n'
     serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
 
+def active_program_name():
+    try:
+        active_program, active_window = get_active_window()
+    except Exception as ex:
+        active_program = 'explorer.exe'
+
+    if active_program == 'chrome.exe':
+        active_program = active_window.split(' - ')[0]
+    elif active_program == 'msrdc.exe':
+        active_program = active_window
+
+    return active_program
+
+def save_running_layout(prev_program=None):
+    global APP_LAYOUTS, LAST_APP_SWITCH_TIME
+
+    ## Prevent fast switch wrong saves
+    if LAST_APP_SWITCH_TIME + datetime.timedelta(seconds=2) > datetime.datetime.now():
+        print ("Skipping save due to fast switch")
+        return
+    
+    LAST_APP_SWITCH_TIME = datetime.datetime.now()
+
+    # Save current layout for previous program
+    running_layout = get_running_layout()
+
+    if not prev_program:
+        return 
+
+    ## Save layout for previous program
+    if APP_LAYOUTS.get(prev_program,None)!=running_layout:
+        print (f"Saving layout {running_layout} for {prev_program}")
+        APP_LAYOUTS[prev_program] = {
+            "layout": running_layout,
+            "last_used": datetime.datetime.now().isoformat()
+        }
+        with open(APP_LAYOUTS_FILE, 'w') as file:
+            json.dump(APP_LAYOUTS, file, indent=4)
+
+    return
+
 
 # Función principal que monitorea el cambio de ventana 
 def monitor_window_focus():
-    global configs, serial_port, splits, running_config, APP_LAYOUTS, LAST_SEEN_PROGRAM
+    global configs, serial_port, splits, running_config, APP_LAYOUTS
 
     while True:
         try:
@@ -463,32 +539,11 @@ def monitor_window_focus():
                         screen_code = data['code'][7:]
                         move_window_to_zone(screen_code)
 
-                try:
-                    active_program, active_window = get_active_window()
-                except Exception as ex:
-                    print (f"Could not get active program")
-
-                if not active_program:
-                    continue
-                elif active_program == 'chrome.exe':
-                    active_program = active_window.split(' - ')[0]
-                elif active_program == 'msrdc.exe':
-                    active_program = active_window
-
+                active_program = active_program_name()
                 if  active_program != prev_program:
-                    ## Prevent fast switching layouts
-                    LAST_SEEN_PROGRAM[active_program]= datetime.datetime.now()
-
-                    # Save current layout for previous program
-                    running_layout = obtener_layout_actual()
 
                     ## Save layout for previous program
-                    if LAST_SEEN_PROGRAM.get(prev_program,datetime.datetime.now()) + datetime.timedelta(seconds=1) < datetime.datetime.now():
-                        if APP_LAYOUTS.get(prev_program,None)!=running_layout:
-                            print (f"Saving layout {running_layout} for {prev_program}")
-                            APP_LAYOUTS[prev_program] = running_layout
-                    else:
-                        print (f"Not saving layout for {prev_program} due to quick switch")
+                    save_running_layout(prev_program)
 
                     # Switch to new program
                     prev_program = active_program
@@ -499,13 +554,11 @@ def monitor_window_focus():
                     serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
 
                     # Change keyboard layout if needed
-                    if active_program!='explorer.exe':
-                        new_layout = APP_LAYOUTS.get(active_program,running_config.get('layouts', {}).get(running_config['layout'],None))
-                        if new_layout and new_layout != running_layout:
-                            print (f"Switching layout to {new_layout} for {active_program}")
-                            cambiar_layout(new_layout)
+                    if active_program!= 'explorer.exe':
+                        switch_layout()
 
-                time.sleep(0.5)  # Espera un poco antes de volver a comprobar
+                # Wait for a while before checking again
+                time.sleep(0.5)  
 
         except Exception as ex:
             print(f"Process failed {ex}")
@@ -656,17 +709,30 @@ def crear_icono():
 
 def kill_other_instances_same_script():
     me = os.getpid()
+
     target = os.path.abspath(sys.argv[0]).lower()
+    target_script = target.split(os.sep)[-1]
 
     for p in psutil.process_iter(["pid", "cmdline"]):
         try:
+
+            ## Ignore myself
             pid = p.info["pid"]
             if pid == me:
                 continue
 
+            ## Get command line
             cmdline = p.info["cmdline"] or []
-            # Busca coincidencia exacta del script en la línea de comandos
-            if any(os.path.abspath(x).lower() == target for x in cmdline if isinstance(x, str)):
+
+            if len(cmdline) < 2:
+                continue
+
+            print (f"checking target {target} against cmdline: {cmdline}")
+
+            process_script = cmdline[1].lower()
+            if process_script == target_script:
+                print (f"Will kill PID {pid} with cmdline: {cmdline} for target {target}")
+
                 # Mata árbol (hijos) primero
                 for child in p.children(recursive=True):
                     try:
