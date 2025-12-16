@@ -538,6 +538,22 @@ def monitor_window_focus():
                     elif data['code'][:7]=='SCREEN:':
                         screen_code = data['code'][7:]
                         move_window_to_zone(screen_code)
+                    elif data['code'][:6]=='SLEEP:':
+                        code_hibernate = data['code'][6]
+                        code_critical = data['code'][7]
+                        code_wakeup = data['code'][8]
+
+                        if code_hibernate=='0' and code_critical=='1' and code_wakeup=='0':
+                            ## Sleep monitor
+                            ctypes.windll.user32.SendMessageW(
+                                0xFFFF,  # HWND_BROADCAST
+                                0x0112,  # WM_SYSCOMMAND
+                                0xF170,  # SC_MONITORPOWER
+                                2        # monitor off
+                            )
+                        else:
+                            ## Sleep system
+                            ctypes.windll.powrprof.SetSuspendState(int(code_hibernate), int(code_critical), int(code_wakeup))
 
                 active_program = active_program_name()
                 if  active_program != prev_program:

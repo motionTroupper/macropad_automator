@@ -242,6 +242,7 @@
             "a1":"MSG:OPEN:EN,Ubuntu",
             "a1-a2":"MSG:OPEN:EN,Ubuntu-tab",
             "a3-a4":"MSG:OPEN:ES,chrome",
+            "a1-a2-a3-a4":"MSG:SLEEP:010",
             "a2":"MSG:TOGGLE:scenes",
             "a3":"MSG:TOGGLE:camera",
             "a4":"MSG:TOGGLE:microphone",

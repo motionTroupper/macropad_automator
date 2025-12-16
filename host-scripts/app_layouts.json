@@ -1,42 +1,498 @@
 {
     "WindowsTerminal.exe": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:07:26.555254"
+        "last_used": "2025-12-15T19:27:18.261465"
     },
     "Evitar out of bounds": {
         "layout": 67767306,
-        "last_used": "2025-12-13T13:09:12.591832"
+        "last_used": "2025-12-13T13:11:22.771370"
     },
     "Code.exe": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:09:31.270641"
+        "last_used": "2025-12-14T23:02:01.962383"
     },
     "Tractive": {
-        "layout": 67699721,
-        "last_used": "2025-12-13T13:09:02.393434"
+        "layout": 67767306,
+        "last_used": "2025-12-13T15:26:17.358203"
     },
     "explorer.exe": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:09:06.436586"
+        "last_used": "2025-12-16T07:50:53.371446"
     },
     "SearchHost.exe": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:07:12.590102"
+        "last_used": "2025-12-15T11:53:19.197540"
     },
     "about:blank": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:08:39.238006"
+        "last_used": "2025-12-15T19:12:28.474371"
     },
     "ChatGPT": {
-        "layout": 67699721,
-        "last_used": "2025-12-13T13:08:44.281237"
+        "layout": 67767306,
+        "last_used": "2025-12-15T19:12:55.296027"
     },
     "New Tab": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:09:34.314877"
+        "last_used": "2025-12-15T12:11:04.750076"
     },
     "Google": {
         "layout": 67699721,
-        "last_used": "2025-12-13T13:09:37.364986"
+        "last_used": "2025-12-13T13:11:14.576580"
+    },
+    "Your Repositories": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:11:50.619952"
+    },
+    "Configurar GitLab en Docker": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:12:12.247809"
+    },
+    "Configurar GitLab Docker": {
+        "layout": 67767306,
+        "last_used": "2025-12-13T15:19:34.540665"
+    },
+    "ShellHost.exe": {
+        "layout": 67767306,
+        "last_used": "2025-12-13T13:14:12.419346"
+    },
+    "OpenWith.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:15:53.635849"
+    },
+    "Error": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:32:17.724392"
+    },
+    "home.callemayor.info/gitlabas": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:19:01.292821"
+    },
+    "Dashboards": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:06:43.059176"
+    },
+    "Home": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:32:10.167184"
+    },
+    "dbeaver.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T15:25:58.264590"
+    },
+    "The page you're looking for could not be found (404)": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T14:08:16.843908"
+    },
+    "SSDNAS": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T14:15:32.836036"
+    },
+    "QNAP Turbo NAS": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:43:00.184816"
+    },
+    "Reload site?": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T13:43:59.424113"
+    },
+    "home.callemayor.info": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T15:19:58.262487"
+    },
+    "Portainer": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T15:23:30.574875"
+    },
+    "CredentialUIBroker.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:24:47.098455"
+    },
+    "Untitled": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T11:15:28.675710"
+    },
+    "Google Password Manager": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T15:20:47.032486"
+    },
+    "Photos.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-13T15:23:58.855145"
+    },
+    "OneDrive.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:11:37.794800"
+    },
+    "XMouseButtonControl.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T19:24:18.278504"
+    },
+    "Edit bookmark": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:12:20.973485"
+    },
+    "Amazon Vine": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:32:11.881591"
+    },
+    "Opina sobre tus compras": {
+        "layout": 67767306,
+        "last_used": "2025-12-14T11:32:29.090123"
+    },
+    "Opini\u00f3n sobre marcadores": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:15:22.052575"
+    },
+    "Rese\u00f1a de marcadores ajustada": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:31:10.709710"
+    },
+    "TOOHAO Manopla Quita Pelos Mascota, Electrost\u00e1tica Guante Quitapelos Mascotas, Guantes Pelo Gato para Eliminar pelos de Animales para Sofas Ropa Alfombra Mueble Asiento del Coche, Reutilizable (Azul) : Amazon.es: Productos para mascotas": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:27:30.491132"
+    },
+    "\u200eGoogle Gemini": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:14:49.066749"
+    },
+    "Google Gemini": {
+        "layout": 67767306,
+        "last_used": "2025-12-15T12:17:07.746017"
+    },
+    "Impresora 3D Bambu Lab | Desate su Creatividad | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:06:07.794823"
+    },
+    "Compre impresoras 3D, filamentos y accesorios | Bambu LabEU almacenar": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:17:07.892818"
+    },
+    "PLA Matte | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:22:57.314457"
+    },
+    "PLA Basic Starter Classic Pack | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:37:50.790332"
+    },
+    "SnippingTool.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:06:13.593297"
+    },
+    "Amazon.es : bambu pla": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:37:21.666170"
+    },
+    "Amazon.es : bambu pla mate": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:37:41.741171"
+    },
+    "Rebajas de Fin de A\u00f1o 2025": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:43:02.690767"
+    },
+    "Filamentos para impresora 3D | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:23:00.864656"
+    },
+    "PLA CMYK Lithophane Bundle | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:39:08.068040"
+    },
+    "PETG HF | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:24:23.423172"
+    },
+    "PETG Translucent | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:41:40.284247"
+    },
+    "Bambu Reusable Spool | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:42:39.058172"
+    },
+    "New Year Limited Bundle | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:42:49.136835"
+    },
+    "Gmail": {
+        "layout": 67767306,
+        "last_used": "2025-12-14T13:29:46.927645"
+    },
+    "Recibidos (5)": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:47:19.536845"
+    },
+    "Serie Bambu Lab H2: Impresora 3D 4 en 1, grabadora l\u00e1ser, cortadora y plotter | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T22:33:05.392227"
+    },
+    "Impresoras 3D | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:50:32.350034"
+    },
+    "Bambu Lab H2S | Impresora 3D de Gran Formato | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T11:54:22.123152"
+    },
+    "Bambu Lab H2C: Impresi\u00f3n 3D Multimaterial y Multicolor sin Compromisos | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:33:24.283408"
+    },
+    "PLA Basic | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:21:48.151279"
+    },
+    "Iniciar sesi\u00f3n | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T11:15:34.761928"
+    },
+    "Inicia sesi\u00f3n: Cuentas de Google": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:51:24.516323"
+    },
+    "bambulab.com/es/sign-in/callback?redirect_url=https%3A%2F%2Fbambulab.com%2Fes%2Fsign-in%3Fticket%3D1%26to%3Dhttps%253A%252F%252Feu.store.bambulab.com%252Ftransit%253Fto%253Dhttps%25253A%25252F%25252Feu.store.bambulab.com%25252Fes%25252Fcheckouts%25252F676685573286412288&from=mall&slicerLoginType=&openBy=": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:16:26.596471"
+    },
+    "eu.store.bambulab.com/es?from=home_web_top_store": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:37:08.715885"
+    },
+    "Filamento PETG | Tienda Bambu Lab EU": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:23:04.915547"
+    },
+    "Inicia sesi\u00f3n en tu cuenta PayPal": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:24:50.152626"
+    },
+    "PayPal Checkout": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:24:56.704653"
+    },
+    "bambu studio": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:42:46.836871"
+    },
+    "Software Bambu Studio | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:43:03.024178"
+    },
+    "Save As": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T12:42:54.472215"
+    },
+    "Recibidos (7)": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T13:29:52.579089"
+    },
+    "Resultados de la b\u00fasqueda": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:18:32.161833"
+    },
+    "Shelly Web Admin": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:05:50.326149"
+    },
+    "jardin1": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:06:43.018721"
+    },
+    "Shelly Plus2PM": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:05:52.377927"
+    },
+    "Ambient": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:14:48.519347"
+    },
+    "Privacy error": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:10:18.713082"
+    },
+    "Prometheus Time Series Collection and Processing Server": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:10:29.277219"
+    },
+    "prometheus-sources": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:10:37.874521"
+    },
+    "192.168.1.4:9183/metrics": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:10:40.426049"
+    },
+    "amazon.es/checkout/entry/buynow?pipelineType=Chewbacca": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:20:39.244209"
+    },
+    "Haz tu pedido: Caja de Amazon": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:20:46.311662"
+    },
+    "Autorizar m\u00e9todo de pago": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:20:48.859561"
+    },
+    "amazon.es/gp/buy/thankyou/handlers/display.html?purchaseId=420-3767100-6273947&language=es_ES&paymentStartTimestamp=1765718444610&widgetName=Charge&updateStatus=succeed&executionStatus=SUCCESS&reason=uncategorized&pageType=CPEFront&subPageType=Redirections": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:20:48.907982"
+    },
+    "Amazon te lo agradece": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:20:56.960936"
+    },
+    "Perfecta para exteriores": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:22:15.221757"
+    },
+    "Raul Mart\u00ednez Zabala": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:27:26.321826"
+    },
+    "Software terriblemente malo": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:25:44.870028"
+    },
+    "Amazon.es:Opiniones de clientes: Redragon K617 HE Teclado Gaming RGB 8000Hz con Cable": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:25:35.313404"
+    },
+    "Cable consistente, aunque con un conector demasiado grueso": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:26:33.042977"
+    },
+    "amazon.es/manage-content?ref=profile_customer": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:28:50.569008"
+    },
+    "Impreciso para un gato": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:28:50.533039"
+    },
+    "Tiras Nasales Deportivas Premium | Reduce Ronquidos, Congesti\u00f3n y Mejora la Respiraci\u00f3n | Duerme Mejor y Rinde M\u00e1s | 30 Unidades | ForteBreathe : Amazon.es: Salud y cuidado personal": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:29:10.228425"
+    },
+    "Cesta de compra Amazon.es": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:29:47.378962"
+    },
+    "15 abrazaderas de cable de acero inoxidable M3, abrazaderas de cable de alambre, abrazadera de cable en U, forma de arco, conector de cuerda de acero, abrazadera para cable de acero, cuerda, alambre : Amazon.es: Industria, empresas y ciencia": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:30:21.551215"
+    },
+    "Set de 5 Boquillas de Carburo de Tungsteno de 0.4 mm para Impresoras 3D Anycubic Kobra 2 \u2013 Incluye Kobra 2, Kobra 2 Neo, Kobra 2 Plus y Kobra 2 Pro : Amazon.es: Industria, empresas y ciencia": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:31:48.811388"
+    },
+    "Amazon.es : bambu lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:32:34.457786"
+    },
+    "Bambu Lab X1-Carbon + AMS (Combo) Impresora 3D": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:32:44.013452"
+    },
+    "Amazon.es : bambulab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:33:04.680530"
+    },
+    "Nssnlur Placa de impresi\u00f3n PEI texturizada 257 x 257 mm para Bambulab X1 X1C X1E P1P P1S P2S A1, cama de impresi\u00f3n suave PEI Spring Steel con c\u00f3digo QR PEI placa de construcci\u00f3n para plataformas de : Amazon.es: Industria, empresas y ciencia": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:32:54.628350"
+    },
+    "Bambu Lab H2D | Impresora 3D con doble extrusor | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T22:33:07.432837"
+    },
+    "Bambu Lab H2D": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T23:02:29.795628"
+    },
+    "Bambu_Studio_win_public-v02.04.00.70-20251118194119.exe": {
+        "layout": 67767306,
+        "last_used": "2025-12-14T14:35:19.390955"
+    },
+    "bambu-studio.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T22:46:28.853970"
+    },
+    "dwm.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:40:48.257908"
+    },
+    "Descripci\u00f3n general de la cuenta | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:37:08.125795"
+    },
+    "PickerHost.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:37:58.481552"
+    },
+    "bambulab.com/en/sign-in/callback?redirect_url=http%3A%2F%2Flocalhost%3A13618&from=studio&slicerLoginType=ticket&openBy=studio": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:51:26.563673"
+    },
+    "Login Successful | Bambu Lab": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:53:46.935376"
+    },
+    "Introduction to Bambu Studio Nozzle Clumping Detection by Probing | Bambu Lab Wiki": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:50:01.913473"
+    },
+    "pythonw.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T14:53:59.604001"
+    },
+    "LockApp.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T19:12:09.853013"
+    },
+    "Poner ordenador en sleep": {
+        "layout": 67767306,
+        "last_used": "2025-12-14T20:18:30.956140"
+    },
+    "Fusion360.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T19:29:04.803131"
+    },
+    "Recomendaci\u00f3n de tornillo": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T20:19:25.848714"
+    },
+    "Recomendaci\u00f3n tornillo pl\u00e1stico": {
+        "layout": 67699721,
+        "last_used": "2025-12-14T23:02:29.251777"
+    },
+    "M365Copilot.exe": {
+        "layout": 67767306,
+        "last_used": "2025-12-15T11:47:18.315914"
+    },
+    "ApplicationFrameHost.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:17:14.983986"
+    },
+    "Fotos": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:11:24.829329"
+    },
+    "Foto": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T12:17:08.429925"
+    },
+    "Rat\u00f3n en Python": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T19:13:05.463582"
+    },
+    "Acci\u00f3n rat\u00f3n en Python": {
+        "layout": 67767306,
+        "last_used": "2025-12-15T19:28:39.182014"
+    },
+    "ShellExperienceHost.exe": {
+        "layout": 67699721,
+        "last_used": "2025-12-15T19:29:22.477929"
     }
 }
