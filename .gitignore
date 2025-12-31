@@ -1,0 +1,71 @@
+## Custom
+temp
+OLD
+app_layouts.json
+
+### --- SISTEMA OPERATIVO ---
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+### --- EDITORES (VS Code, IntelliJ, Cursor) ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+### --- SECRETOS Y CONFIG (¡CRÍTICO!) ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+.node_repl_history
+
+### --- DEPENDENCIAS Y LIBRERÍAS ---
+node_modules/
+jspm_packages/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+
+# C/C++ (Por si acaso)
+*.o
+*.obj
+*.exe
+*.out
+*.app
+build/
+dist/
+
+### --- LOGS Y TEMPORALES ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.tmp/
+temp/
+.cache/
+
+### --- DOCKER ---
+.docker/
+

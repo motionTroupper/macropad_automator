@@ -1,0 +1,321 @@
+{
+    "outlook|mail":{
+        "layout":"ES",
+        "colors":{
+            "b1":"0000ff",
+            "b2":"00ff00",
+            "b3":"00ffff",
+            "b4":"00ff00",
+
+            "c3":"ff0000",
+			
+            "d1":"00ff00",
+            "d2":"ffff00",
+            "d3":"aa0000",
+            "d4":"ff0000",
+
+            "e1":"008800",
+            "e2":"888800",
+            "e3":"880000",
+            "e4":"0000ff",
+						"k9":"0000ff"
+        },
+        "keys":{
+            "b1":"\\e\\e\\C\\S1\\s\\c\\sgi",
+            "b2":"\\e\\e\\C\\S2\\s\\c",
+            "b3":"\\e\\e\\C\\S1\\s\\c\\sgs",
+            "b4":"\\e\\e\\C\\S1\\s\\c\\sgd",
+
+            "c3":"\\S7\\s\\p\\Ca\\ccategory\\S.\\smfm,pdm\\n",
+
+            "d1":"c\\pp3\\n",
+            "d2":"c\\pp2\\n",
+            "d3":"c\\pp1\\n",
+            "d4":"c\\pmfm\\n",
+
+            "e1":"c\\ppdx\\n\\p\\d",
+            "e2":"c\\ppdo\\n\\p\\d",
+            "e3":"c\\ppdm\\n\\p\\d",
+            "e4":"",
+
+            "d1-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp3\\n",
+            "d2-er":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp2\\n",
+            "d3-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\sp1\\n",
+            "d4-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\smfm\\n",
+
+            "e1-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdx\\n",
+            "e2-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdo\\n",
+            "e3-e4":"\\S7\\s\\p\\Ca\\ccategory\\S.\\spdm\\n"
+
+        }
+    },
+
+    "teams|onenote|winword|powerpnt":{
+        "layout":"ES",
+        "toggles":{
+            "pause":[
+                {
+                    "key":"b2",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f6",
+                        "ctrl+windows+shift+f4"
+                    ]
+                },
+                {
+                    "key":"b2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "ctrl+windows+shift+f5"
+                    ]
+                }
+            ],
+            "start-stop":[
+                {
+                    "key":"b1",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f6",
+                        "ctrl+windows+shift+f4"
+                    ]
+                },
+                {
+                    "key":"b1",
+                    "color":"00ff00",
+                    "strokes":[
+                        "ctrl+windows+shift+f7"
+                    ]
+                }
+            ]
+        },
+        "colors":{
+            "b1":"00ff00",
+            "b2":"00ff00"
+        },
+        "keys":{
+            "b1":"MSG:TOGGLE:start-stop",
+            "b2":"MSG:TOGGLE:pause"
+        }
+    },
+    
+    "terminal":{
+        "layout":"EN",
+        "keys":{
+            "b1":"\\Cb\\c\\S5",
+            "b2":"\\Cb\\c\\S'",
+            "c1":"\\Cb\\cz",
+            "b3":"\\F",
+            "c3":"\\G",
+            "c2":"\\Cb\\c["
+        },
+        "colors":{
+            "b1":"0000ff",
+            "b2":"00ffff",
+            "c1":"ffffff",
+            "c2":"777777",
+            "b3":"ffff00", 
+            "c3":"ff00ff"
+        }
+    },
+    ".":{
+        "layout":"EN",
+        "layouts": {
+            "EN": 67699721,
+            "ES": 67767306
+        },
+        "programs":{
+            "chrome":{
+                "program":"chrome.exe --new-tab about:blank",
+                "window":"chrome.exe",
+                "multiple_instances": true
+            },
+            "Ubuntu":{
+                "program":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "window":"WindowsTerminal.exe",
+                "multiple_instances": false
+            },
+            "Ubuntu-tab":{
+                "program":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "window":"WindowsTerminal.exe",
+                "multiple_instances": true
+            }
+        },
+        "toggles":{
+            "layouts":[
+                {
+                    "key":"a2",
+                    "color":"ffff00",
+                    "strokes":[
+                        "windows+ctrl+alt+1"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+ctrl+alt+2"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "windows+ctrl+alt+3"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"ff0000",
+                    "strokes":[ 
+                        "windows+ctrl+alt+0"
+                    ]
+                }
+            ],
+            "scenes":[
+                {
+                    "key":"a2",
+                    "color":"0000ff",
+                    "strokes":[
+                        "ctrl+windows+shift+f8"
+                    ]
+                },
+                {
+                    "key":"a2",
+                    "color":"ff0000",
+                    "strokes":[
+                        "ctrl+windows+shift+f9"
+                    ]
+                }
+            ],
+            "camera":[
+                {
+                    "key":"a3",
+                    "color":"ff0000",
+                    "strokes":[
+                        "windows+ctrl+shift+f11"
+                    ]
+                },
+                {
+                    "key":"a3",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+ctrl+shift+f10"
+                    ]   
+                }
+            ],
+            "microphone":[
+                {
+                    "key":"a4",
+                    "color":"ff0000",
+                    "strokes":[
+                        "windows+alt+k"
+                    ]
+                },
+                {
+                    "key":"a4",
+                    "color":"00ff00",
+                    "strokes":[
+                        "windows+alt+k"
+                    ]
+                }
+            ]
+        },
+        "colors":{
+            "a1":"ff6600",
+            "a2":"00ff00",
+            "a3":"ff0000",
+            "a4":"ff0000",
+
+            "c4":"999955",
+
+            "e1":"ff0000",
+            "e2":"0000ff",
+
+            "e3":"ffff00",
+            "e4":"ff00ff",
+
+            "f1":"ff0000",
+            "f2":"660000",
+            "f3":"000066",
+            "f4":"0000ff"
+        },
+        "keys":{
+            "a1":"MSG:OPEN:EN,Ubuntu",
+            "a1-a2":"MSG:OPEN:EN,Ubuntu-tab",
+            "a3-a4":"MSG:OPEN:ES,chrome",
+            "a1-a2-a3-a4":"MSG:SLEEP:010",
+            "a2":"MSG:TOGGLE:scenes",
+            "a3":"MSG:TOGGLE:camera",
+            "a4":"MSG:TOGGLE:microphone",
+
+
+            "b1-b2":"MSG:SCREEN:top-left",
+            "b3-b4":"MSG:SCREEN:top-right",
+            "b2-b3":"MSG:SCREEN:top-full",
+            
+            "c1-c2":"MSG:SCREEN:left-top",
+            "d1-d2":"MSG:SCREEN:left-mid",
+            "c1-d1": "MSG:SCREEN:left-top+mid",
+            "e1-e2":"MSG:SCREEN:left-bottom",
+            "d1-e1":"MSG:SCREEN:left-mid+bottom",
+            "c1-e1":"MSG:SCREEN:left-full",
+
+            "f1-f2":"MSG:SCREEN:laptop-left",
+            "f3-f4":"MSG:SCREEN:laptop-right",
+            "f2-f3":"MSG:SCREEN:laptop-full",
+
+            "e4-f4":"\\G",
+            "e3-f3":"\\F",
+
+            "c4":"blue",
+
+            "e1":"\\f",
+            "e2":"\\g",
+
+            "e3":"MSG:TYPE:#NEW_UUID##UUID#",
+            "e4":"MSG:TYPE:#UUID#",
+
+            "f1":"\\C\\H",
+            "f2":"\\H",
+            "f3":"\\Z",
+            "f4":"\\C\\Z"
+        },
+        "symbols":{
+            "A": "A",   "B": "B",   "C": "C",   "D": "D",   "E": "E",
+            "F": "F",   "G": "G",   "H": "H",   "I": "I",   "J": "J",
+            "K": "K",   "L": "L",   "M": "M",   "N": "N",   "O": "O",
+            "P": "P",   "Q": "Q",   "R": "R",   "S": "S",   "T": "T",
+            "U": "U",   "V": "V",   "W": "W",   "X": "X",   "Y": "Y",
+            "Z": "Z",
+        
+            " ": "SPACE",
+        
+            "1": "ONE", "2": "TWO",     "3": "THREE",   "4": "FOUR",    "5": "FIVE",
+            "6": "SIX", "7": "SEVEN",   "8": "EIGHT",   "9": "NINE",    "0": "ZERO",
+        
+            "-": "MINUS",   "=": "EQUALS",  "+": "EQUALS",  "/": "FORWARD_SLASH",
+        
+            "\\B": "BACKSLASH",
+        
+            "[": "LEFT_BRACKET",    "]": "RIGHT_BRACKET",   "(": "NINE",    ")": "ZERO",
+        
+            ";": "SEMICOLON",       "'": "QUOTE",       "`": "GRAVE_ACCENT",    "!": "ONE",
+            ",": "COMMA",           ".": "PERIOD",      "@":"TWO",              "#":"THREE",
+            "$":"FOUR",             "%":"",         "^":"SIX",              "&":"SEVEN",
+            "*":"EIGHT",            "_": "MINUS",       "{": "LEFT_BRACKET",    "}": "RIGHT_BRACKET",
+            ":": "SEMICOLON",       "\"": "QUOTE",      "<": "COMMA",           ">": "DOT",
+            "?": "FORWARD_SLASH",   "|": "BACKSLASH",
+        
+            "\\N": "ENTER",         "\\E": "ESCAPE",        "\\T": "TAB",           "\\C": "LEFT_CONTROL",
+            "\\A": "LEFT_ALT",      "\\S": "LEFT_SHIFT",    "\\W": "WINDOWS",
+        
+            "\\U": "UP_ARROW",      "\\D": "DOWN_ARROW",    "\\L": "LEFT_ARROW",    "\\R": "RIGHT_ARROW",
+
+            "\\H": "HOME",          "\\Z": "END",
+
+            "\\1": "F11",        "\\2": "F12",        "\\3": "F3",        "\\4": "F4",
+            "\\5": "F5",        "\\6": "F6",        "\\7": "F7",        "\\8": "F8",
+            "\\9": "F9",        "\\0": "F10",       "\\F": "PAGE_UP",   "\\G": "PAGE_DOWN"
+        }
+    } 
+}

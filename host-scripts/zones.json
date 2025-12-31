@@ -1,0 +1,121 @@
+{
+  "hardware_mapping": {
+    "SAM7119": "top-left", 
+    "SAM711A": "top-right",
+    "SAM1018": "left",    
+    "BOE0BC9": "laptop",
+    "PHLC17B_0": "top-left",
+    "PHLC17B_1": "top-right",
+    "ACR0522": "left"
+  },
+  
+  "offsets-default":{
+    "x": -8,
+    "y": -1,
+    "w": 16,
+    "h": 9
+  },
+
+  "app_overrides": {
+    "code.exe": {
+      "x": 7,
+      "y": 0,
+      "w": -14,
+      "h": -8
+    }
+  },
+
+  "areas": {
+    "top-left": {
+      "monitor": "top-left",
+      "monitor_end": "top-right",
+      "min_x": 0,
+      "max_x": 50,
+      "min_y": 0,
+      "max_y": 100
+    },
+    "top-right": {
+      "monitor": "top-left",
+      "monitor_end": "top-right",
+      "min_x": 50,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 100
+    },
+    "top-full": {
+      "monitor": "top-left",
+      "monitor_end": "top-right",
+      "min_x": 0,   
+      "max_x": 100, 
+      "min_y": 0,
+      "max_y": 100
+    },
+    "left-top": {
+      "monitor": "left",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 33.3
+    },
+    "left-mid": {
+      "monitor": "left",
+      "is_teams_zone": true,
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 33.3,
+      "max_y": 66.6
+    },
+    "left-bottom": {
+      "monitor": "left",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 66.6,
+      "max_y": 100
+    },
+    
+    "left-top+mid": {
+      "monitor": "left",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 66.6
+    },
+    "left-mid+bottom": {
+      "monitor": "left",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 33.3,
+      "max_y": 100
+    },
+
+    "left-full": {
+      "monitor": "left",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 100
+    },
+
+    "laptop-left": {
+      "monitor": "laptop",
+      "min_x": 0,
+      "max_x": 50,
+      "min_y": 0,
+      "max_y": 100
+    },
+    "laptop-right": {
+      "monitor": "laptop",
+      "min_x": 50,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 100
+    },
+    "laptop-full": {
+      "monitor": "laptop",
+      "min_x": 0,
+      "max_x": 100,
+      "min_y": 0,
+      "max_y": 100
+    }
+  }
+}
