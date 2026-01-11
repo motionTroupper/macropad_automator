@@ -32,6 +32,8 @@ import socket
 
 import queue
 
+import winreg
+
 debug = True
 
 base_path = Path(sys.argv[0]).resolve().parent
@@ -754,15 +756,40 @@ def check_teams_window():
         time.sleep(3)   
 
 def on_layout_shortcut():
+    global current_tray_layout, current_program, APP_LAYOUTS
+
     print ("Layout change detected, saving current program layout...")
-    for _ in range(10):
-        if current_tray_layout != get_running_layout():
-            break
-        time.sleep(0.1)
-        
+    if not current_program:
+        print ("No current program to save layout for.")
+        return
+    
+    if current_tray_layout == 0x04090409:
+        print ("Current layout is US English, switching to Spanish.")
+        target_layout = 0x040a0c0a
+    else:
+        print ("Current layout is not US English, switching to US English.")
+        target_layout = 0x04090409
+
+    APP_LAYOUTS[current_program]['layout'] = target_layout
+    current_tray_layout = target_layout
+    setup_program_layout(current_program)
+    change_tray_icon_layout(target_layout)
     save_current_program()
 
 # Cargar una imagen para el icono
+def store_layouts():
+    global APP_LAYOUTS
+    if not PERSIST_APP_LAYOUTS:
+        return
+    while True:
+        time.sleep(60)
+        try:
+            with open(APP_LAYOUTS_FILE, 'w') as file:
+                json.dump(APP_LAYOUTS, file, indent=4)
+                print (f"App layouts saved to {APP_LAYOUTS_FILE}")
+        except Exception as e:
+            print (f"Error saving app layouts: {e}")
+
 def launch_program():
 
     global icon_global
@@ -771,35 +798,29 @@ def launch_program():
     menu = (item('Quit', quit),)
     icon_global = Icon("Macropad", image, menu=menu)
 
+    ## Hook for layout change
+    keyboard.add_hotkey('windows+space', on_layout_shortcut, suppress=True)
+    keyboard.add_hotkey('left alt+shift', on_layout_shortcut, suppress=True)
+
     ## Configure threads
     thread_macropad = threading.Thread(target=monitor_macropad, daemon=True)
     thread_teams = threading.Thread(target=check_teams_window, daemon=True)
     thread_window_hook = threading.Thread(target=monitor_windows, daemon=True)    
+    thread_store_layouts = threading.Thread(target=store_layouts, daemon=True)
 
     # Start threads
     thread_macropad.start()
     thread_window_hook.start()
     thread_teams.start()
+    thread_store_layouts.start()
+
 
     # Initialize system tray icon
     icon_global.run()
 
-def get_running_layout( hWnd=None):
-    if hWnd is None:
-        hWnd = ctypes.windll.user32.GetForegroundWindow()
-
-    if not hWnd:
-        print ("No active window handle found")
-        return None
-
-    threadID = ctypes.windll.user32.GetWindowThreadProcessId(hWnd, None)
-    hkl = ctypes.windll.user32.GetKeyboardLayout(threadID)
-    layout_id = hkl & 0xFFFFFFFF
-    return layout_id
-
 def change_tray_icon_layout(layout_id):
     global current_tray_layout, icon_global
-    new_icon = LAYOUT_MAP.get(layout_id,{}).get('icon','unknown.png')
+    new_icon = LAYOUT_MAP.get(layout_id,{}).get('icon','default_icon.png')
     icon_global.icon = Image.open(new_icon)
     current_tray_layout = layout_id
 
@@ -811,31 +832,13 @@ def save_current_program():
         return
 
     ## Check for layout change
-    layout_id = get_running_layout(current_program_hwnd)
-    change_tray_icon_layout(layout_id)
+    layout_id = current_tray_layout
 
     print (f"Saving layout {LAYOUT_MAP.get(layout_id,{}).get('name', 'Unknown')} for program {current_program}")
 
-    ## Get stored layout for active program
-    stored_layout = APP_LAYOUTS.get(current_program,{}).get('layout',None)
-
-    ## Get last used time
-    last_used_layout = datetime.datetime.fromisoformat(
-        APP_LAYOUTS.get(current_program,{}).get('last_used','1970-01-01T00:00:00')
-    )
-
-    ## Update stored layout if different or expired
-    if (
-        not last_used_layout
-        or stored_layout != layout_id 
-        or last_used_layout + datetime.timedelta(hours=2) < datetime.datetime.now()
-    ):
-        print (f"Updating stored layout for {current_program} to {LAYOUT_MAP.get(layout_id,{}).get('name', 'Unknown')}")
-        APP_LAYOUTS[current_program]['layout']=layout_id
-        APP_LAYOUTS[current_program]['last_used']=datetime.datetime.now().isoformat()
-        if PERSIST_APP_LAYOUTS:
-            with open(APP_LAYOUTS_FILE, 'w') as file:
-                json.dump(APP_LAYOUTS, file, indent=4)
+    APP_LAYOUTS[current_program]['layout']=layout_id
+    APP_LAYOUTS[current_program]['last_used']=datetime.datetime.now().isoformat()
+    
 
 def kill_other_instances_same_script():
     me = os.getpid()
@@ -913,12 +916,15 @@ def window_change_callback(hWinEventHook, event, hwnd, idObject, idChild, dwEven
         setup_program(active_program, hwnd)
 
 def monitor_windows():
-    global _event_proc
+    global _event_proc, current_program, current_program_hwnd
+
+    ## Initial setup
+    current_program_hwnd = win32gui.GetForegroundWindow()
+    active_program = active_program_name()
+    setup_program(active_program, current_program_hwnd)
+
     _event_proc = WinEventProcType(window_change_callback)
 
-    layout_id = get_running_layout()
-    change_tray_icon_layout(layout_id)
-    
     # Hook for FOCUS change
     ctypes.windll.user32.SetWinEventHook(
         EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
@@ -931,9 +937,6 @@ def monitor_windows():
         0, _event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
     )
 
-    ## Hook for layout change
-    keyboard.add_hotkey('windows+space', on_layout_shortcut)
-    keyboard.add_hotkey('left alt+shift', on_layout_shortcut)
 
     msg = ctypes.wintypes.MSG()
     while ctypes.windll.user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
@@ -951,23 +954,6 @@ if __name__ == "__main__":
     ## Print monitor IDs and load zones
     print_monitor_ids()
     load_zones_config()
-
-    ## Launch WSL hidden
-    DETACHED_PROCESS         = 0x00000008
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    CREATE_NO_WINDOW         = 0x08000000
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    vbs_path = os.path.join(script_dir, "wsl_hidden.vbs")
-
-    p = subprocess.Popen(
-        ["wscript.exe", vbs_path],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-    )
-    print(f"WSL launched with PID {p.pid}, running sleep infinity")
 
     ## Create system tray icon and start monitoring
     launch_program()
