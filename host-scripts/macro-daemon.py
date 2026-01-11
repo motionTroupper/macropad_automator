@@ -12,6 +12,8 @@ import pygetwindow as gw
 import win32api
 import win32gui
 import win32con
+import win32com
+import win32com.client
 import win32process
 
 import json
@@ -22,17 +24,25 @@ import subprocess
 import keyboard
 
 import ctypes
+import ctypes.wintypes
 import psutil
 import uuid
 import traceback
 import socket
+
+import queue
+
+debug = True
 
 base_path = Path(sys.argv[0]).resolve().parent
 os.chdir(base_path)
 
 latest_uuid = None
 was_teams_running = False
+
 serial_port = None
+serial_lock = threading.Lock()
+serial_queue = queue.Queue()
 
 APP_OVERRIDES = {}
 ZONE_DEFINITIONS = {}
@@ -41,12 +51,48 @@ BORDER_OFFSET = {}
 HARDWARE_ID_MAP = {}
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
-LAYOUT_DROP_DAYS = 30
+icon_global = None
+
+current_tray_layout = None
+current_program_hwnd = None
+current_program = None
+
+LAYOUT_MAP = {
+    0x4090409: {
+        "code":"0x04090409",
+        "name":"US English",
+        "icon":"us.png"
+    },
+    0x40a0c0a: {
+        "code":"0x040a0c0a",
+        "name":"Spanish (Spain)",
+        "icon":"es.png"
+    }
+}
+
+## Windows Event Hook constants
+EVENT_SYSTEM_FOREGROUND = 0x0003
+WINEVENT_OUTOFCONTEXT = 0x0000
+EVENT_OBJECT_NAMECHANGE = 0x800C
+
+## Define the callback function type
+WinEventProcType = ctypes.WINFUNCTYPE(
+    None, 
+    ctypes.wintypes.HANDLE, 
+    ctypes.wintypes.DWORD, 
+    ctypes.wintypes.HWND, 
+    ctypes.wintypes.LONG, 
+    ctypes.wintypes.LONG, 
+    ctypes.wintypes.DWORD, 
+    ctypes.wintypes.DWORD
+)
 
 ## Load app layouts from json file
 PERSIST_APP_LAYOUTS = True
+LAYOUT_DROP_DAYS = 30
 APP_LAYOUTS_FILE = "./app_layouts.json"
 
+## Load existing layouts if persistence is enabled
 if PERSIST_APP_LAYOUTS and os.path.exists(APP_LAYOUTS_FILE):
     with open(APP_LAYOUTS_FILE, 'r') as file:
         APP_LAYOUTS = json.load(file)
@@ -56,31 +102,30 @@ if PERSIST_APP_LAYOUTS and os.path.exists(APP_LAYOUTS_FILE):
 else:
     APP_LAYOUTS = {}
 
-LAST_APP_SWITCH_TIME = datetime.datetime.now()
-
-running_config={}
-configs={}
-toggles={}
+running_config={}       ## Current active configuration
+macropad_config={}      ## Last sent configuration to macropad
+all_configurations={}   ## All loaded configurations
+toggles={}              ## Toggles state
 
 
 def print_monitor_ids():
-    print("\n--- ESCANEANDO MONITORES CONECTADOS ---")
+    print("\n--- SCANNING MONITORS ---")
     monitors = win32api.EnumDisplayMonitors()
     for i, (hMonitor, hdc, rect) in enumerate(monitors):
         monitor_info = win32api.GetMonitorInfo(hMonitor)
         adapter_name = monitor_info['Device']
         
         try:
-            # Obtenemos el dispositivo MONITOR asociado al adaptador
-            # El segundo 0 es el índice del monitor en ese adaptador
+            # Get the display device associated with the adapter
+            # Second parameter 0 is the device index for that adapter
             device = win32api.EnumDisplayDevices(adapter_name, 0, 0)
             device_id = device.DeviceID
             print(f"Monitor {i}:")
             print(f"  Handle: {hMonitor}")
             print(f"  Adapter: {adapter_name}")
-            print(f"  DeviceID: {device_id}") # <--- ESTO ES LO QUE NECESITAS COPIAR
+            print(f"  DeviceID: {device_id}") 
         except Exception as e:
-            print(f"  Error leyendo ID: {e}")
+            print(f"  Error reading ID: {e}")
     print("---------------------------------------\n")
 
 def active_monitors():
@@ -94,7 +139,7 @@ def active_monitors():
             real_device_id = device.DeviceID
             active_monitors.append((real_device_id.split('\\')[1], monitor_info['Work']))
         except Exception as e:
-            print(f"Error al obtener información del monitor: {e}")
+            print(f"Error obtaining monitor information: {e}")
     return active_monitors
 
 
@@ -111,9 +156,9 @@ def load_zones_config():
             offset_key = f"offsets-{hostname}"
             BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
 
-            print(f"Cargadas {len(ZONE_DEFINITIONS)} zonas y {len(HARDWARE_ID_MAP)} monitores hardware.")
+            print(f"Loaded {len(ZONE_DEFINITIONS)} zones and {len(HARDWARE_ID_MAP)} hardware monitors.")
     except Exception as e:
-        print(f"Error cargando zones.json: {e}")
+        print(f"Error loading zones.json: {e}")
 
 def get_monitor_rect_by_alias(target_alias):
 
@@ -146,7 +191,7 @@ def get_monitor_rect_by_alias(target_alias):
         
         known_ids = list(HARDWARE_ID_MAP.keys())
         for dev_id, work_rect in active_monitors_list:
-            # ¿Es este monitor 'dev_id' uno de los míos conocidos?
+            # Is this monitor 'dev_id' one of my known ones?
             is_known = False
             for kid in known_ids:
                 if kid in dev_id:
@@ -161,14 +206,6 @@ def get_monitor_rect_by_alias(target_alias):
     return None
 
 
-def get_process_name(hwnd):
-    try:
-        _, pid = win32process.GetWindowThreadProcessId(hwnd)
-        proc = psutil.Process(pid)
-        return proc.name().lower()
-    except:
-        return ""
-    
 def move_window_to_zone(zone_key):
     global TEAMS_TOP, TEAMS_LEFT, BORDER_OFFSET
 
@@ -180,7 +217,7 @@ def move_window_to_zone(zone_key):
     hwnd = win32gui.GetForegroundWindow()
     if not hwnd: return
 
-    # --- RESTAURAR SI MAXIMIZADA ---
+    # --- RESTORE IF MAXIMIZED OR MINIMIZED ---
     placement = win32gui.GetWindowPlacement(hwnd)
     is_maximized = (placement[1] == win32con.SW_SHOWMAXIMIZED)
     is_minimized = (placement[1] == win32con.SW_SHOWMINIMIZED)
@@ -188,20 +225,20 @@ def move_window_to_zone(zone_key):
     if is_maximized or is_minimized:
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
-    # --- 1. OBTENER MONITOR DE INICIO (OBLIGATORIO) ---
+    # GET START MONITOR (REQUIRED) ---
     start_rect = get_monitor_rect_by_alias(zone['monitor'])
     if not start_rect: 
-        print(f"Monitor de inicio '{zone['monitor']}' no encontrado.")
+        print(f"Start monitor '{zone['monitor']}' not found.")
         return
     
-    # --- 2. OBTENER MONITOR DE FIN (OPCIONAL / FALLBACK) ---
+    # GET END MONITOR (OPTIONAL / FALLBACK) ---
     end_alias = zone.get('monitor_end', zone['monitor'])
     end_rect = get_monitor_rect_by_alias(end_alias)
 
-    # AQUÍ ESTÁ LA MAGIA DEL FALLBACK:
+    # FALLBACK:
     if end_rect:
-        # Escenario Casa: Ambos monitores existen
-        # Calculamos la unión de ambos
+        # Home scenario: Both monitors exist
+        # Calculate the union of both monitors as canvas
         s_left, s_top, s_right, s_bottom = start_rect
         e_left, e_top, e_right, e_bottom = end_rect
         
@@ -211,17 +248,16 @@ def move_window_to_zone(zone_key):
         canvas_bottom = max(s_bottom, e_bottom)
         # print(f"Dual Monitor Mode: {zone['monitor']} -> {end_alias}")
     else:
-        # Escenario Trabajo: El monitor final no está conectado
-        # Degradamos suavemente: El lienzo total es SOLO el monitor de inicio
+        # Work scenario: The end monitor is not connected
+        # Gracefully degrade: The total canvas is ONLY the start monitor
         canvas_left, canvas_top, canvas_right, canvas_bottom = start_rect
-        print(f"Single Monitor Fallback: '{end_alias}' no detectado. Usando solo '{zone['monitor']}'.")
+        print(f"Single Monitor Fallback: '{end_alias}' not detected. Using only '{zone['monitor']}'.")
 
     canvas_width = canvas_right - canvas_left
     canvas_height = canvas_bottom - canvas_top
 
-    # --- 3. CALCULAR COORDENADAS ---
-    # Los porcentajes se aplican sobre el canvas calculado (sea doble o simple)
-    
+    # CALCULATE COORDINATES ---
+    # Percentages are applied over the calculated canvas (whether dual or single)
     raw_x = canvas_left + int(canvas_width * (zone['min_x'] / 100))
     raw_y = canvas_top + int(canvas_height * (zone['min_y'] / 100))
     
@@ -231,8 +267,8 @@ def move_window_to_zone(zone_key):
     raw_w = raw_x2 - raw_x
     raw_h = raw_y2 - raw_y
 
-    # --- 4. APLICAR CORRECCIÓN DE BORDES Y OVERRIDES ---
-    app_name = get_process_name(hwnd)
+    # APPLY BORDER CORRECTION AND OVERRIDES ---
+    app_name = get_active_window()[0].lower()
     app_adj = APP_OVERRIDES.get(app_name, {})
 
     final_x = raw_x + BORDER_OFFSET["x"] + app_adj.get("x",0)
@@ -240,7 +276,7 @@ def move_window_to_zone(zone_key):
     final_w = raw_w + BORDER_OFFSET["w"] + app_adj.get("w",0)
     final_h = raw_h + BORDER_OFFSET["h"] + app_adj.get("h",0)
 
-    # --- 5. EJECUTAR ---
+    # EXECUTE 
     try:
         win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
         win32gui.SetForegroundWindow(hwnd)
@@ -252,53 +288,27 @@ def move_window_to_zone(zone_key):
     except Exception as e:
         print(f"Error: {e}")
 
-def get_running_layout():
-    hWnd = ctypes.windll.user32.GetForegroundWindow()
-    threadID = ctypes.windll.user32.GetWindowThreadProcessId(hWnd, None)
-    hkl = ctypes.windll.user32.GetKeyboardLayout(threadID)
-    layout_id = hkl & 0xFFFFFFFF
-    return layout_id
 
 
-def switch_layout(delay = 0.05, tries=2):
-    if tries <=0:
-        ## For some reason, Microsoft Notepad does not switch layout properly
-        print ("Max tries exceeded for layout switch")
-        return
+def open_window(regexp_filter):
 
-    required_layout = get_app_layout()
-    starting_layout = get_running_layout()
-    if starting_layout != required_layout:
-        keyboard.press('windows+space')
-        time.sleep(delay)
-        keyboard.release('windows+space')
-        time.sleep(delay)
-        print (f"Switched layout from {hex(starting_layout)} to {hex(get_running_layout())} seeking {hex(required_layout)}")
+    # Check for comma to extract second part
+    if ',' in regexp_filter:
+        parts = regexp_filter.split(',')
+        regexp_filter = parts[1]
 
-    ## If not correct (fast windows switch or other issues), try again
-    required_layout = get_app_layout()
-    resulting_layout = get_running_layout()
-    if resulting_layout != required_layout:
-        print (f"Layout missed from {hex(starting_layout)} to {hex(resulting_layout)} seeking {hex(required_layout)}")
-        switch_layout(delay= 2*delay, tries=tries-1)
-
-
-
-def open_window(filtro_regex):
-
-    if ',' in filtro_regex:
-        parts = filtro_regex.split(',')
-        filtro_regex = parts[1]
-
+    # Get program info from running config
     programs = running_config.get('programs', {})
-    if filtro_regex not in programs:
-        print (f"Program {filtro_regex} was not recognized")
+    if regexp_filter not in programs:
+        print (f"Program {regexp_filter} was not recognized")
         return 
-    
-    program_name = programs[filtro_regex]['program']
-    window_name = programs[filtro_regex]['window']
-    multiple_instances = programs[filtro_regex].get('multiple_instances',False)
 
+    # Extract program details   
+    program_name = programs[regexp_filter]['program']
+    window_name = programs[regexp_filter]['window']
+    multiple_instances = programs[regexp_filter].get('multiple_instances',False)
+
+    # Search for existing windows
     def callback(hwnd, lista):
         if win32gui.IsWindowVisible(hwnd):
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
@@ -310,118 +320,85 @@ def open_window(filtro_regex):
             except psutil.NoSuchProcess:
                 pass
 
-    ventanas=[]
-    win32gui.EnumWindows(callback, ventanas)
+    windows=[]
+    win32gui.EnumWindows(callback, windows)
 
-    if len(ventanas)==0:
+    if len(windows)==0:
         print (f"Launching program {program_name}")
         subprocess.Popen(f"start {program_name}", shell=True)
-    elif win32gui.GetForegroundWindow() in ventanas:
-        print (f"Window for {filtro_regex} is already active")
+        time.sleep(1)
+    elif win32gui.GetForegroundWindow() in windows:
+        print (f"Window for {regexp_filter} is already active")
         if multiple_instances:
             print (f"Launching another instance of {program_name}")
             subprocess.Popen(f"start {program_name}", shell=True)
-    else:
-        print (f"Found existing window(s) for {filtro_regex}, bringing to front")
-        for hwnd in ventanas:
-            if win32gui.IsIconic(hwnd):  
-                print (f"Restoring minimized window for {filtro_regex}")
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                continue
-            else:
-                print (f"Bringing to front window for {filtro_regex}")
-                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-                time.sleep(0.05)
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                continue
 
-    ## Cambiar layout si es necesario 
-    switch_layout()
+    if len(windows)==0:
+        win32gui.EnumWindows(callback, windows)
 
-def get_app_layout():
-    global APP_LAYOUTS
-    active_program = active_program_name()
+    for hwnd in windows:
+        if win32gui.IsIconic(hwnd):  
+            print (f"Restoring minimized window for {regexp_filter}")
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            continue
+        else:
+            print (f"Bringing to front window for {regexp_filter}")
+            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            time.sleep(0.05)
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            continue
 
-    if active_program in APP_LAYOUTS:
-        APP_LAYOUTS[active_program]['last_used'] = datetime.datetime.now().isoformat()
-    else:
-        APP_LAYOUTS[active_program]= {
-            "layout": running_config.get('layouts', {}).get(running_config['layout'],None),
-            "last_used": datetime.datetime.now().isoformat()
-        }   
-
-    return APP_LAYOUTS.get(
-        active_program,
-        None
-    )['layout']
-
-# Función para obtener el nombre de la ventana activa
-def get_active_window():
-    window = win32gui.GetForegroundWindow()
-    if not window:
-        return 'None'
-
-    window_title = win32gui.GetWindowText(window)
-    _, pid = win32process.GetWindowThreadProcessId(window)
-    try:
-        proc = psutil.Process(pid)
-        exe = proc.name()  # Nombre del ejecutable, por ejemplo: Teams.exe
-        window_title = win32gui.GetWindowText(window)
-    except psutil.NoSuchProcess:
-        return None,None
-    return exe,window_title
 
 def lookup_config(window_title):
-    global configs
+    global all_configurations
     global toggles
 
     try:
         config_version = datetime.datetime.fromtimestamp(Path("./config.json").stat().st_mtime)
 
-        if not configs or config_version > configs['version']:
+        if not all_configurations or config_version > all_configurations['version']:
             with open("./config.json", 'r') as file:
-                configs = json.load(file)
-                configs['version'] = config_version
+                all_configurations = json.load(file)
+                all_configurations['version'] = config_version
 
-        claves_ordenadas = sorted(configs.keys(), key=len, reverse=False)
+        config_keys = sorted(all_configurations.keys(), key=len, reverse=False)
+
+        print (f"Keys are {config_keys}")
 
         new_config = {
             "window": None,
             "colors": {},
             "keys": {}  
         }
-        for clave in claves_ordenadas:
-            #print (f"Procesando {clave} para {window_title}")
-            if re.search(clave, window_title,re.IGNORECASE) or clave=='.':
-                print(f"{clave} matched for {window_title}")  
+        for config_key in config_keys:
+            #print (f"Procesando {config_key} para {window_title}")
+            if re.search(config_key, window_title,re.IGNORECASE) or config_key=='.':
+                print(f"{config_key} matched for {window_title}")  
                 if not new_config['window']:
-                    new_config['window'] = clave
+                    new_config['window'] = config_key
 
-                for key, value in configs[clave]['keys'].items():
+                for key, value in all_configurations[config_key]['keys'].items():
                     new_config['keys'][key]=value
 
-                for key, value in configs[clave]['colors'].items():
+                for key, value in all_configurations[config_key]['colors'].items():
                     new_config['colors'][key]=value
 
-                for key, value in configs[clave].get('toggles',{}).items():
+                for key, value in all_configurations[config_key].get('toggles',{}).items():
                     toggle = toggles.setdefault(key, {})
                     toggle['config'] = value
                     toggle.setdefault('pos', 0)
 
-                if (configs[clave]).get('symbols',None):
-                    new_config['symbols'] = configs[clave]['symbols'] 
+                if (all_configurations[config_key]).get('symbols',None):
+                    new_config['symbols'] = all_configurations[config_key]['symbols'] 
 
-                if (configs[clave]).get('layout',None):
-                    new_config['layout']=configs[clave]['layout']
+                if (all_configurations[config_key]).get('layout',None):
+                    new_config['layout']=all_configurations[config_key]['layout']
 
-                if (configs[clave]).get('programs',None):
-                    new_config['programs']=configs[clave]['programs']
+                if (all_configurations[config_key]).get('programs',None):
+                    new_config['programs']=all_configurations[config_key]['programs']
                 
-                if (configs[clave]).get('layouts',None):
-                    new_config['layouts']=configs[clave]['layouts']
-
-        # prettyprint new_config
-        #print (f"Configuración compuesta: {new_config}") # en prettyprint
+                if (all_configurations[config_key]).get('layouts',None):
+                    new_config['layouts']=all_configurations[config_key]['layouts']
 
         return new_config
     except Exception as e:
@@ -448,9 +425,7 @@ def type_chars(cadena):
     keyboard.write(cadena)
 
 def toggle_key(toggle_name):
-    global toggles
-    global running_config
-    global serial_port 
+    global toggles, running_config
 
     print ("toggle key called for "+toggle_name)
 
@@ -463,14 +438,34 @@ def toggle_key(toggle_name):
     next_strokes = toggles[toggle_name]['config'][next_pos]['strokes']
     next_key = toggles[toggle_name]['config'][next_pos]['key']
 
-    running_config['colors'][next_key]=next_leds
     for stroke in next_strokes:
         print (f"Pressing {stroke}")
         keyboard.press(stroke)
         time.sleep(0.05)
         keyboard.release(stroke)
-    command = json.dumps(running_config) + '\n'
-    serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
+
+    running_config['colors'][next_key]=next_leds
+    send_command_to_macropad(running_config)
+
+
+## Get the current active window title and process name
+def get_active_window():
+    window = win32gui.GetForegroundWindow()
+    if not window:
+        return 'None'
+
+    window_title = win32gui.GetWindowText(window)
+    _, pid = win32process.GetWindowThreadProcessId(window)
+
+    try:
+        process = psutil.Process(pid)
+        executable = process.name() 
+        window_title = win32gui.GetWindowText(window)
+    except psutil.NoSuchProcess:
+        return None,None
+
+    return executable,window_title
+
 
 def active_program_name():
     try:
@@ -485,120 +480,168 @@ def active_program_name():
 
     return active_program
 
-def save_running_layout(prev_program=None):
-    global APP_LAYOUTS, LAST_APP_SWITCH_TIME
+def send_command_to_macropad(command_dict):
+    global serial_port, macropad_config
 
-    ## Prevent fast switch wrong saves
-    if LAST_APP_SWITCH_TIME + datetime.timedelta(seconds=2) > datetime.datetime.now():
-        print ("Skipping save due to fast switch")
+    ## Avoid sending same config again
+    if command_dict == macropad_config:
+        print (f"Configuration unchanged, not sending to macropad")
         return
     
-    LAST_APP_SWITCH_TIME = datetime.datetime.now()
+    with serial_lock:
+        print (f"Sending command to macropad")
+        macropad_config = command_dict.copy()
+        command = json.dumps(macropad_config) + '\n'
+        serial_port.write(command.encode())
+        serial_port.flush()
 
-    # Save current layout for previous program
-    running_layout = get_running_layout()
+def setup_program_macropad(active_program):
+    global running_config
+    print (f"Setting up macropad for program: {active_program}")
+    running_config = lookup_config(active_program)
+    send_command_to_macropad(running_config)
 
-    if not prev_program:
-        return 
+def get_app_layout():
+    global APP_LAYOUTS
+    active_program = active_program_name()
 
-    ## Save layout for previous program
-    if APP_LAYOUTS.get(prev_program,None)!=running_layout:
-        print (f"Saving layout {running_layout} for {prev_program}")
-        APP_LAYOUTS[prev_program] = {
-            "layout": running_layout,
+    if active_program in APP_LAYOUTS:
+        app_layout = APP_LAYOUTS[active_program]['layout']
+        APP_LAYOUTS[active_program]['last_used'] = datetime.datetime.now().isoformat()
+    else:
+        app_layout = running_config.get('layouts', {}).get(running_config['layout'],current_tray_layout)
+        APP_LAYOUTS[active_program]= {
+            "layout": app_layout,
             "last_used": datetime.datetime.now().isoformat()
-        }
-        if PERSIST_APP_LAYOUTS:
-            with open(APP_LAYOUTS_FILE, 'w') as file:
-                json.dump(APP_LAYOUTS, file, indent=4)
+        }   
+    debug and print (f"Layout for {active_program} is {LAYOUT_MAP.get(app_layout,{}).get('name', 'Unknown')}")
+    return app_layout
 
-    return
+def setup_program_layout(active_program):
+    print (f"Setting up layout for program: {active_program}")
+
+    ## Get required layout
+    required_layout_id = get_app_layout()
+    if not required_layout_id:
+        print ("No layout required")
+        return
+    
+    ## Get current layout
+    hwnd = win32gui.GetForegroundWindow()
+    thread_id = ctypes.windll.user32.GetWindowThreadProcessId(hwnd, None)
+    if not hwnd:
+        print ("No active window found")
+        return
+    
+    ## Post layout
+    win32gui.PostMessage(
+        hwnd, win32con.WM_INPUTLANGCHANGEREQUEST, 0, required_layout_id
+    )
+
+    ## Check and try with send if needed
+    current_layout = ctypes.windll.user32.GetKeyboardLayout(thread_id)
+    if current_layout == required_layout_id:
+        ## Wait a bit
+        time.sleep(0.05)
+
+        ## Verify change and retry with SendMessage if needed
+        current_layout = ctypes.windll.user32.GetKeyboardLayout(thread_id)
+        if current_layout != required_layout_id:
+            win32gui.SendMessage(hwnd, win32con.WM_INPUTLANGCHANGEREQUEST, 0, required_layout_id)   
+
+    change_tray_icon_layout(required_layout_id)
+
+def setup_program(active_program, hwnd):
+    global current_program, current_program_hwnd
+    print(f"Switching to program: {active_program}")
+    setup_program_macropad(active_program)
+    setup_program_layout(active_program)
+    current_program = active_program
+    current_program_hwnd = hwnd
 
 
-# Función principal que monitorea el cambio de ventana 
-def monitor_window_focus():
-    global configs, serial_port, splits, running_config, APP_LAYOUTS
+def serial_port_initialize():
+    global serial_port
+    ## Initialize serial port
+    if serial_port:
+        serial_port.close()
+        serial_port = None
+    serial_port = serial.Serial('COM4', 115200, timeout=1)  
+    print(f"Serial port COM4 initialized.")
+
+# Función principal que monitorea el cambio de window 
+def monitor_macropad():
+    global serial_port
+
+    threading.Thread(target=process_serial_queue, daemon=True).start()
 
     while True:
         try:
-            configs = {}
-            prev_program = ''
-
-            if serial_port:
-                serial_port.close()
-                serial_port = None
-
-            serial_port = serial.Serial('COM4', 115200, timeout=1)  
-            while True:
-                if serial_port.in_waiting:
-                    data = json.loads(serial_port.readline().decode('utf-8').strip())
-                    print(f"{data} received")
-                    if data['code'][:5]=='OPEN:':
-                        app = data['code'][5:]
-                        print(f"Told to open [{app}]")
-                        open_window(app)
-                    elif data['code'][:5]=='TYPE:':
-                        to_type = data['code'][5:]
-                        print(f"Told to type {to_type}")
-                        type_chars(to_type)
-                    elif data['code'][:7]=='TOGGLE:':
-                        toggle_name = data['code'][7:]
-                        toggle_key(toggle_name)
-                    elif data['code'][:7]=='SCREEN:':
-                        screen_code = data['code'][7:]
-                        move_window_to_zone(screen_code)
-                    elif data['code'][:6]=='SLEEP:':
-                        code_hibernate = data['code'][6]
-                        code_critical = data['code'][7]
-                        code_wakeup = data['code'][8]
-
-                        if code_hibernate=='0' and code_critical=='1' and code_wakeup=='0':
-                            ## Sleep monitor
-                            ctypes.windll.user32.SendMessageW(
-                                0xFFFF,  # HWND_BROADCAST
-                                0x0112,  # WM_SYSCOMMAND
-                                0xF170,  # SC_MONITORPOWER
-                                2        # monitor off
-                            )
-                        else:
-                            ## Sleep system
-                            ctypes.windll.powrprof.SetSuspendState(int(code_hibernate), int(code_critical), int(code_wakeup))
-
-                active_program = active_program_name()
-                if  active_program != prev_program:
-
-                    ## Save layout for previous program
-                    save_running_layout(prev_program)
-
-                    # Switch to new program
-                    prev_program = active_program
-
-                    # Load new config and send to pad
-                    running_config = lookup_config(active_program)
-                    command = json.dumps(running_config) + '\n'
-                    serial_port.write(command.encode())  # Enviar el comando al puerto (debe ser codificado en bytes)
-
-                    # Change keyboard layout if needed
-                    if active_program!= 'explorer.exe':
-                        switch_layout()
-
-                # Wait for a while before checking again
-                time.sleep(0.5)  
-
+            if serial_port and serial_port.is_open:
+                line = serial_port.readline().decode('utf-8').strip()
+                if line:
+                    data = json.loads(line) 
+                    serial_queue.put(data)
+            else:
+                serial_port_initialize()
         except Exception as ex:
-            print(f"Process failed {ex}")
-            time.sleep(5)
+            print(f"Serial port error: {ex}")
+            time.sleep(2)
 
-# Función para salir del programa
-def salir(icon, item):
+def enter_suspend_state(data):
+    print ("Entering suspend state as requested by macropad")
+
+    code_hibernate = data['code'][6]
+    code_critical = data['code'][7]
+    code_wakeup = data['code'][8]
+
+    if code_hibernate=='0' and code_critical=='1' and code_wakeup=='0':
+        ## Sleep monitor
+        ctypes.windll.user32.SendMessageW(
+            0xFFFF,  # HWND_BROADCAST
+            0x0112,  # WM_SYSCOMMAND
+            0xF170,  # SC_MONITORPOWER
+            2        # monitor off
+        )
+    else:
+        ## Sleep system
+        ctypes.windll.powrprof.SetSuspendState(int(code_hibernate), int(code_critical), int(code_wakeup))
+
+
+def process_serial_queue():
+    global serial_queue
+
+    while True:
+        data = serial_queue.get()
+        print(f"{data} received")
+        if data['code'][:5]=='OPEN:':
+            app = data['code'][5:]
+            print(f"Told to open [{app}]")
+            open_window(app)
+        elif data['code'][:5]=='TYPE:':
+            to_type = data['code'][5:]
+            print(f"Told to type {to_type}")
+            type_chars(to_type)
+        elif data['code'][:7]=='TOGGLE:':
+            toggle_name = data['code'][7:]
+            toggle_key(toggle_name)
+        elif data['code'][:7]=='SCREEN:':
+            screen_code = data['code'][7:]
+            move_window_to_zone(screen_code)
+        elif data['code'][:6]=='SLEEP:':
+            enter_suspend_state(data)
+
+
+# Function to quit the application
+def quit(icon, item):
     icon.stop()
     sys.exit()
 
-def chat_title(texto):
-    partes = [parte.strip() for parte in texto.split("|")]
-    for i, parte in enumerate(partes):
-        if parte == "Bosonit" and i > 0:
-            return partes[i - 1]
+def chat_title(title):
+    parts = [part.strip() for part in title.split("|")]
+    for i, part in enumerate(parts):
+        if part == "Bosonit" and i > 0:
+            return parts[i - 1]
     return None
 
 def check_teams_window():
@@ -606,12 +649,12 @@ def check_teams_window():
     print ("Starting Teams window monitor")
     while True:
         is_teams_running = False
-        for ventana in gw.getAllWindows():
-            titulo = ventana.title or ""
-            titulo_minus = titulo.lower()
-            if "teams" in titulo_minus and ventana.top == TEAMS_TOP and ventana.left == TEAMS_LEFT:
-                print (f"All ventana info: {ventana}")
-                teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(titulo) or 'Meeting'}"
+        for window in gw.getAllWindows():
+            title = window.title or ""
+            title_lower = title.lower()
+            if "teams" in title_lower and window.top == TEAMS_TOP and window.left == TEAMS_LEFT:
+                print (f"All window info: {window}")
+                teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(title) or 'Meeting'}"
                 print (f"Found Teams window: {teams_app}")
                 is_teams_running = True
         if is_teams_running and not was_teams_running:
@@ -710,20 +753,89 @@ def check_teams_window():
         was_teams_running = is_teams_running
         time.sleep(3)   
 
+def on_layout_shortcut():
+    print ("Layout change detected, saving current program layout...")
+    for _ in range(10):
+        if current_tray_layout != get_running_layout():
+            break
+        time.sleep(0.1)
+        
+    save_current_program()
+
 # Cargar una imagen para el icono
-def crear_icono():
-    image = Image.open("icono.png")  # Reemplaza con tu icono
-    menu = (item('Salir', salir),)
-    icon = Icon("MiApp", image, menu=menu)
+def launch_program():
 
-    # Iniciar el proceso en segundo plano
-    hilo = threading.Thread(target=monitor_window_focus, daemon=True)
-    hilo_teams = threading.Thread(target=check_teams_window, daemon=True)
+    global icon_global
 
-    hilo.start()
-    hilo_teams.start()
+    image = Image.open("default_icon.png")  # Reemplaza con tu icono
+    menu = (item('Quit', quit),)
+    icon_global = Icon("Macropad", image, menu=menu)
 
-    icon.run()
+    ## Configure threads
+    thread_macropad = threading.Thread(target=monitor_macropad, daemon=True)
+    thread_teams = threading.Thread(target=check_teams_window, daemon=True)
+    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True)    
+
+    # Start threads
+    thread_macropad.start()
+    thread_window_hook.start()
+    thread_teams.start()
+
+    # Initialize system tray icon
+    icon_global.run()
+
+def get_running_layout( hWnd=None):
+    if hWnd is None:
+        hWnd = ctypes.windll.user32.GetForegroundWindow()
+
+    if not hWnd:
+        print ("No active window handle found")
+        return None
+
+    threadID = ctypes.windll.user32.GetWindowThreadProcessId(hWnd, None)
+    hkl = ctypes.windll.user32.GetKeyboardLayout(threadID)
+    layout_id = hkl & 0xFFFFFFFF
+    return layout_id
+
+def change_tray_icon_layout(layout_id):
+    global current_tray_layout, icon_global
+    new_icon = LAYOUT_MAP.get(layout_id,{}).get('icon','unknown.png')
+    icon_global.icon = Image.open(new_icon)
+    current_tray_layout = layout_id
+
+def save_current_program():
+    global APP_LAYOUTS, current_tray_layout, icon_global, current_program_hwnd, current_program
+
+    ## Prevent null program
+    if not current_program:
+        return
+
+    ## Check for layout change
+    layout_id = get_running_layout(current_program_hwnd)
+    change_tray_icon_layout(layout_id)
+
+    print (f"Saving layout {LAYOUT_MAP.get(layout_id,{}).get('name', 'Unknown')} for program {current_program}")
+
+    ## Get stored layout for active program
+    stored_layout = APP_LAYOUTS.get(current_program,{}).get('layout',None)
+
+    ## Get last used time
+    last_used_layout = datetime.datetime.fromisoformat(
+        APP_LAYOUTS.get(current_program,{}).get('last_used','1970-01-01T00:00:00')
+    )
+
+    ## Update stored layout if different or expired
+    if (
+        not last_used_layout
+        or stored_layout != layout_id 
+        or last_used_layout + datetime.timedelta(hours=2) < datetime.datetime.now()
+    ):
+        print (f"Updating stored layout for {current_program} to {LAYOUT_MAP.get(layout_id,{}).get('name', 'Unknown')}")
+        APP_LAYOUTS[current_program]['layout']=layout_id
+        APP_LAYOUTS[current_program]['last_used']=datetime.datetime.now().isoformat()
+        if PERSIST_APP_LAYOUTS:
+            with open(APP_LAYOUTS_FILE, 'w') as file:
+                json.dump(APP_LAYOUTS, file, indent=4)
 
 def kill_other_instances_same_script():
     me = os.getpid()
@@ -731,6 +843,7 @@ def kill_other_instances_same_script():
     target = os.path.abspath(sys.argv[0]).lower()
     target_script = target.split(os.sep)[-1]
 
+    print (f"Checking for other instances of {target_script}...")
     for p in psutil.process_iter(["pid", "cmdline"]):
         try:
 
@@ -745,11 +858,7 @@ def kill_other_instances_same_script():
             if len(cmdline) < 2:
                 continue
 
-            print (f"checking target {target_script} against cmdline: {cmdline}")
-
             if "python" in cmdline[0].lower() and target_script in cmdline[1].lower():
-                print (f"Will kill PID {pid} with cmdline: {cmdline} for target {target}")
-
                 # Mata árbol (hijos) primero
                 for child in p.children(recursive=True):
                     try:
@@ -771,6 +880,7 @@ def kill_other_instances_same_script():
                     except psutil.Error:
                         pass
 
+
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
@@ -786,17 +896,67 @@ def respawn():
     )
     sys.exit()
 
+def window_change_callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+    global current_program, current_program_hwnd, current_tray_layout
+
+    active_program = active_program_name()
+    if active_program == current_program:
+        ## No change
+        return
+    elif event == EVENT_SYSTEM_FOREGROUND:
+        ## Focus changed
+        print(f"Detected focus change to HWND: {hwnd}")
+        setup_program(active_program, hwnd)
+    elif event == EVENT_OBJECT_NAMECHANGE:
+        ## Title changed
+        print(f"Detected title change in HWND: {hwnd}")
+        setup_program(active_program, hwnd)
+
+def monitor_windows():
+    global _event_proc
+    _event_proc = WinEventProcType(window_change_callback)
+
+    layout_id = get_running_layout()
+    change_tray_icon_layout(layout_id)
+    
+    # Hook for FOCUS change
+    ctypes.windll.user32.SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+        0, _event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+    )
+
+    ## Hook for name change (to detect title changes)
+    ctypes.windll.user32.SetWinEventHook(
+        EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE,
+        0, _event_proc, 0, 0, WINEVENT_OUTOFCONTEXT
+    )
+
+    ## Hook for layout change
+    keyboard.add_hotkey('windows+space', on_layout_shortcut)
+    keyboard.add_hotkey('left alt+shift', on_layout_shortcut)
+
+    msg = ctypes.wintypes.MSG()
+    while ctypes.windll.user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
+        ctypes.windll.user32.TranslateMessageW(ctypes.byref(msg))
+        ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
+
+
 if __name__ == "__main__":
+    ## Kill other instances of this same script
     kill_other_instances_same_script()
+
+    ## Globally initialize serial port
+    serial_port_initialize()
+
+    ## Print monitor IDs and load zones
     print_monitor_ids()
     load_zones_config()
 
-    # Flags de Windows para lanzar el proceso sin ventana y desacoplado
+    ## Launch WSL hidden
     DETACHED_PROCESS         = 0x00000008
     CREATE_NEW_PROCESS_GROUP = 0x00000200
     CREATE_NO_WINDOW         = 0x08000000
 
-    # Lanzar WSL oculto
     script_dir = os.path.dirname(os.path.abspath(__file__))
     vbs_path = os.path.join(script_dir, "wsl_hidden.vbs")
 
@@ -807,8 +967,8 @@ if __name__ == "__main__":
         stderr=subprocess.DEVNULL,
         creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     )
+    print(f"WSL launched with PID {p.pid}, running sleep infinity")
 
-
-    print(f"WSL lanzado con PID {p.pid}, ejecutando sleep infinity")
-    crear_icono()
+    ## Create system tray icon and start monitoring
+    launch_program()
 
