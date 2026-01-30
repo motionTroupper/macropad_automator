@@ -1,10 +1,13 @@
 import os
 import sys
 
-import serial
 import time
 import pystray
 from pystray import MenuItem as item, Icon
+
+import serial
+import queue
+
 from PIL import Image
 import threading
 import pygetwindow as gw
@@ -30,9 +33,18 @@ import uuid
 import traceback
 import socket
 
-import queue
 
-import winreg
+program_name_pattern = r'[^a-z0-9._\-\s]'
+normalize_program_name_re = re.compile(program_name_pattern, re.IGNORECASE)   
+
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2) # 2 = PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1) # 1 = PROCESS_SYSTEM_DPI_AWARE
+    except Exception:
+        ctypes.windll.user32.SetProcessDPIAware()
 
 debug = True
 
@@ -107,6 +119,7 @@ else:
 running_config={}       ## Current active configuration
 macropad_config={}      ## Last sent configuration to macropad
 all_configurations={}   ## All loaded configurations
+all_configurations_version=None
 toggles={}              ## Toggles state
 
 
@@ -352,16 +365,15 @@ def open_window(regexp_filter):
 
 
 def lookup_config(window_title):
-    global all_configurations
-    global toggles
+    global all_configurations, all_configurations_version, toggles
 
     try:
         config_version = datetime.datetime.fromtimestamp(Path("./config.json").stat().st_mtime)
 
-        if not all_configurations or config_version > all_configurations['version']:
+        if config_version != all_configurations_version:
+            all_configurations_version = config_version
             with open("./config.json", 'r') as file:
                 all_configurations = json.load(file)
-                all_configurations['version'] = config_version
 
         config_keys = sorted(all_configurations.keys(), key=len, reverse=False)
 
@@ -372,6 +384,7 @@ def lookup_config(window_title):
             "colors": {},
             "keys": {}  
         }
+        print (f"config keys are {config_keys}")
         for config_key in config_keys:
             #print (f"Procesando {config_key} para {window_title}")
             if re.search(config_key, window_title,re.IGNORECASE) or config_key=='.':
@@ -475,6 +488,9 @@ def active_program_name():
     except Exception as ex:
         active_program = 'explorer.exe'
 
+    active_program = re.sub(normalize_program_name_re, '', str(active_program.lower())).strip()[:50]
+    active_window = re.sub(normalize_program_name_re, '', str(active_window.lower())).strip()[:50]
+
     if active_program == 'chrome.exe':
         active_program = active_window.split(' - ')[0]
     elif active_program == 'msrdc.exe':
@@ -484,6 +500,7 @@ def active_program_name():
 
 def send_command_to_macropad(command_dict):
     global serial_port, macropad_config
+    print (f"Sending configuration to macropad")
 
     ## Avoid sending same config again
     if command_dict == macropad_config:
@@ -511,7 +528,7 @@ def get_app_layout():
         app_layout = APP_LAYOUTS[active_program]['layout']
         APP_LAYOUTS[active_program]['last_used'] = datetime.datetime.now().isoformat()
     else:
-        app_layout = running_config.get('layouts', {}).get(running_config['layout'],current_tray_layout)
+        app_layout = running_config.get('layouts', {}).get(running_config.get('layout', current_tray_layout), current_tray_layout)
         APP_LAYOUTS[active_program]= {
             "layout": app_layout,
             "last_used": datetime.datetime.now().isoformat()
@@ -799,8 +816,8 @@ def launch_program():
     icon_global = Icon("Macropad", image, menu=menu)
 
     ## Hook for layout change
-    keyboard.add_hotkey('windows+space', on_layout_shortcut, suppress=True)
-    keyboard.add_hotkey('left alt+shift', on_layout_shortcut, suppress=True)
+    keyboard.add_hotkey('windows+space', on_layout_shortcut, suppress=False)
+    keyboard.add_hotkey('left alt+shift', on_layout_shortcut, suppress=False)
 
     ## Configure threads
     thread_macropad = threading.Thread(target=monitor_macropad, daemon=True)

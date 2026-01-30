@@ -50,6 +50,18 @@
         }
     },
 
+    "dbeaver":{
+        "layout":"EN",
+        "colors":{
+            "b3":"ff0000",
+            "b4":"0000ff"
+        },
+        "keys":{
+            "b3":"\\C\\F",
+            "b4":"\\C\\G"
+        }
+    },
+
     "teams|onenote|winword|powerpnt":{
         "layout":"ES",
         "toggles":{
