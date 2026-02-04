@@ -142,12 +142,14 @@
                 "multiple_instances": true
             },
             "Ubuntu":{
-                "program":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "program_old":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "program":"wt -w new nt -p \"Ubuntu\" ",
                 "window":"WindowsTerminal.exe",
                 "multiple_instances": false
             },
             "Ubuntu-tab":{
-                "program":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "program_old":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "program":"wt -w 0 nt -p \"Ubuntu\" ",
                 "window":"WindowsTerminal.exe",
                 "multiple_instances": true
             }
