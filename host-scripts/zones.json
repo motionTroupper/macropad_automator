@@ -52,7 +52,7 @@
     },
     "left-top": {
       "monitor": "left",
-      "is_teams_zone": true,
+      "is_teams_recording_zone": true,
       "min_x": 0,
       "max_x": 100,
       "min_y": 0,
@@ -60,6 +60,7 @@
     },
     "left-mid": {
       "monitor": "left",
+      "is_teams_zone": true,
       "min_x": 0,
       "max_x": 100,
       "min_y": 33.3,

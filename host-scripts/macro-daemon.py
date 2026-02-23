@@ -53,6 +53,7 @@ os.chdir(base_path)
 
 latest_uuid = None
 was_teams_running = False
+was_teams_to_be_recorded = False
 
 serial_port = None
 serial_lock = threading.Lock()
@@ -63,6 +64,8 @@ ZONE_DEFINITIONS = {}
 MONITOR_ALIASES = {}
 BORDER_OFFSET = {}
 HARDWARE_ID_MAP = {}
+TEAMS_RECORDING_TOP = 0
+TEAMS_RECORDING_LEFT = 0
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
 icon_global = None
@@ -222,7 +225,7 @@ def get_monitor_rect_by_alias(target_alias):
 
 
 def move_window_to_zone(zone_key):
-    global TEAMS_TOP, TEAMS_LEFT, BORDER_OFFSET
+    global TEAMS_RECORDING_TOP, TEAMS_RECORDING_LEFT, BORDER_OFFSET, APP_OVERRIDES, TEAMS_LEFT, TEAMS_TOP
 
     zone = ZONE_DEFINITIONS.get(zone_key)
     if not zone:
@@ -296,6 +299,10 @@ def move_window_to_zone(zone_key):
         win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
         win32gui.SetForegroundWindow(hwnd)
         
+        if zone.get("is_teams_recording_zone", False):
+            TEAMS_RECORDING_LEFT = final_x
+            TEAMS_RECORDING_TOP = final_y
+
         if zone.get("is_teams_zone", False):
             TEAMS_LEFT = final_x
             TEAMS_TOP = final_y
@@ -664,18 +671,28 @@ def chat_title(title):
     return None
 
 def check_teams_window():
-    global was_teams_running, TEAMS_TOP, TEAMS_LEFT
+    global was_teams_running, was_teams_to_be_recorded, TEAMS_RECORDING_TOP, TEAMS_RECORDING_LEFT, TEAMS_LEFT, TEAMS_TOP
     print ("Starting Teams window monitor")
     while True:
         is_teams_running = False
+        is_teams_to_be_recorded = False
         for window in gw.getAllWindows():
             title = window.title or ""
             title_lower = title.lower()
+            if "teams" in title_lower and window.top == TEAMS_RECORDING_TOP and window.left == TEAMS_RECORDING_LEFT:
+                print (f"All window info: {window}")
+                teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(title) or 'Meeting'}"
+                print (f"Found Teams window: {teams_app}")
+                is_teams_running = True
+                is_teams_to_be_recorded = True
+
             if "teams" in title_lower and window.top == TEAMS_TOP and window.left == TEAMS_LEFT:
                 print (f"All window info: {window}")
                 teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(title) or 'Meeting'}"
                 print (f"Found Teams window: {teams_app}")
                 is_teams_running = True
+                is_teams_to_be_recorded = False
+
         if is_teams_running and not was_teams_running:
             print ("Teams started running")
 
@@ -698,40 +715,23 @@ def check_teams_window():
             keyboard.press('control+windows+shift+f10')
             time.sleep(0.1)
             keyboard.release('control+windows+shift+f10')
-
-            # Stop recording (just in case)
-            keyboard.press('control+windows+shift+f7')
+        
+        if is_teams_to_be_recorded and not was_teams_to_be_recorded:
+            # Unpause recording
+            keyboard.press('control+windows+shift+f4')
             time.sleep(0.1)
-            keyboard.release('control+windows+shift+f7')
-
-            if os.path.exists("c:\\Users\\raul.mzabala\\Videos\\latest.mp4"):
-                print ("Stopping recording...")
-                keyboard.press('control+windows+shift+f7')
-                time.sleep(0.1)
-                keyboard.release('control+windows+shift+f7')
-
-                print ("Waiting for previous recording to be released...")
-                moved = not os.path.exists("c:\\Users\\raul.mzabala\\Videos\\latest.mp4")
-                while not moved:
-                    print ("Trying to rename the previous recording...")
-                    try:
-                        os.replace(
-                            "c:\\Users\\raul.mzabala\\Videos\\latest.mp4",
-                            f"c:\\Users\\raul.mzabala\\Videos\\Captures\\{teams_app}_orphan_prev_meeting.mp4"
-                        )
-                        moved = True
-                    except Exception as e:
-                        print (f"Could not rename: {e}") 
-                        time.sleep(1) 
-
-            print ("Recording file renamed successfully.")
-
+            keyboard.release('control+windows+shift+f4')
             # Start recording
             keyboard.press('control+windows+shift+f6')
             time.sleep(0.1)
             keyboard.release('control+windows+shift+f6')
+        elif not is_teams_to_be_recorded and was_teams_to_be_recorded:
+            # Pause recording
+            keyboard.press('control+windows+shift+f5')
+            time.sleep(0.1)
+            keyboard.release('control+windows+shift+f5')
 
-        elif not is_teams_running and was_teams_running:
+        if not is_teams_running and was_teams_running:
             print ("Teams stopped running")
 
             # Switch camera off
@@ -770,6 +770,7 @@ def check_teams_window():
             keyboard.release('control+windows+shift+alt+f1')
 
         was_teams_running = is_teams_running
+        was_teams_to_be_recorded = is_teams_to_be_recorded
         time.sleep(3)   
 
 def on_layout_shortcut():
