@@ -460,6 +460,8 @@ def toggle_key(toggle_name):
     next_strokes = toggles[toggle_name]['config'][next_pos]['strokes']
     next_key = toggles[toggle_name]['config'][next_pos]['key']
 
+    print (f"Toggling {toggle_name} to position {next_pos} with key {next_key}, strokes {next_strokes} and leds {next_leds}")
+
     for stroke in next_strokes:
         print (f"Pressing {stroke}")
         keyboard.press(stroke)
@@ -507,16 +509,15 @@ def active_program_name():
 
 def send_command_to_macropad(command_dict):
     global serial_port, macropad_config
-    print (f"Sending configuration to macropad")
 
     ## Avoid sending same config again
     if command_dict == macropad_config:
         print (f"Configuration unchanged, not sending to macropad")
-        return
+        #return
     
+    macropad_config = command_dict.copy()
     with serial_lock:
         print (f"Sending command to macropad")
-        macropad_config = command_dict.copy()
         command = json.dumps(macropad_config) + '\n'
         serial_port.write(command.encode())
         serial_port.flush()
@@ -771,7 +772,7 @@ def check_teams_window():
 
         was_teams_running = is_teams_running
         was_teams_to_be_recorded = is_teams_to_be_recorded
-        time.sleep(3)   
+        time.sleep(1)   
 
 def on_layout_shortcut():
     global current_tray_layout, current_program, APP_LAYOUTS

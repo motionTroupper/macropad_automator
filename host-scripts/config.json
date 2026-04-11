@@ -204,17 +204,17 @@
             "camera":[
                 {
                     "key":"a3",
-                    "color":"ff0000",
-                    "strokes":[
-                        "windows+ctrl+shift+f11"
-                    ]
-                },
-                {
-                    "key":"a3",
                     "color":"00ff00",
                     "strokes":[
                         "windows+ctrl+shift+f10"
                     ]   
+                },
+                {
+                    "key":"a3",
+                    "color":"ff0000",
+                    "strokes":[
+                        "windows+ctrl+shift+f11"
+                    ]
                 }
             ],
             "microphone":[
@@ -236,17 +236,19 @@
         },
         "colors":{
             "a1":"ff6600",
-            "a2":"00ff00",
-            "a3":"ff0000",
+            "a2":"ff0000",
+            "a3":"0000ff",
             "a4":"ff0000",
 
             "c4":"999955",
 
             "e1":"ff0000",
             "e2":"0000ff",
+            "e3":"ff0000",
+            "e4":"0000ff",
 
-            "e3":"ffff00",
-            "e4":"ff00ff",
+            "d1":"ffff00",
+            "d2":"ff00ff",
 
             "f1":"ff0000",
             "f2":"660000",
@@ -285,9 +287,11 @@
 
             "e1":"\\f",
             "e2":"\\g",
+            "e3":"\\C\\g",
+            "e4":"\\C\\f",
 
-            "e3":"MSG:TYPE:#NEW_UUID##UUID#",
-            "e4":"MSG:TYPE:#UUID#",
+            "d1":"MSG:TYPE:#NEW_UUID##UUID#",
+            "d2":"MSG:TYPE:#UUID#",
 
             "f1":"\\C\\H",
             "f2":"\\H",
