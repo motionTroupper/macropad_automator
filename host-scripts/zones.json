@@ -1,4 +1,12 @@
 {
+  "cycle": [
+    "top-full", 
+    "laptop-full",
+    "left-top+mid", 
+    "left-full",
+    "top-right"
+  ],
+
   "hardware_mapping": {
     "SAM7119": "top-left", 
     "SAM711A": "top-right",
@@ -6,7 +14,9 @@
     "BOE0BC9": "laptop",
     "PHLC17B_0": "top-left",
     "PHLC17B_1": "top-right",
-    "ACR0522": "left"
+    "ACR0522": "left",
+    "ACR079A_0": "top-left",
+    "ACR079A_1": "top-right"
   },
   
   "offsets-default":{

@@ -74,6 +74,25 @@ current_tray_layout = None
 current_program_hwnd = None
 current_program = None
 
+## Cycle of zones for ctrl+win+left / ctrl+win+right (loaded from zones.json -> "cycle")
+ZONE_CYCLE = [
+    "left-top",
+    "left-top+mid",
+    "left-full",
+    "left-mid",
+    "left-mid+bottom",
+    "left-bottom",
+    "top-left",
+    "top-full",
+    "top-right",
+    "laptop-left",
+    "laptop-full",
+    "laptop-right",
+]
+ZONE_CYCLE_RESET_SECONDS = 5
+WINDOW_ZONE_INDEX = {}        ## hwnd -> last index in ZONE_CYCLE
+WINDOW_ZONE_LAST_PRESS = {}   ## hwnd -> last hotkey timestamp (monotonic)
+
 LAYOUT_MAP = {
     0x4090409: {
         "code":"0x04090409",
@@ -162,7 +181,7 @@ def active_monitors():
 
 
 def load_zones_config():
-    global ZONE_DEFINITIONS, HARDWARE_ID_MAP, BORDER_OFFSET, APP_OVERRIDES
+    global ZONE_DEFINITIONS, HARDWARE_ID_MAP, BORDER_OFFSET, APP_OVERRIDES, ZONE_CYCLE
     try:
         with open("zones.json", "r") as f:
             data = json.load(f)
@@ -170,11 +189,15 @@ def load_zones_config():
             HARDWARE_ID_MAP = data.get("hardware_mapping", {}) # <--- NUEVO
             APP_OVERRIDES = data.get("app_overrides", {})
 
+            cycle = data.get("cycle")
+            if isinstance(cycle, list) and cycle:
+                ZONE_CYCLE = cycle
+
             hostname = socket.gethostname()
             offset_key = f"offsets-{hostname}"
             BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
 
-            print(f"Loaded {len(ZONE_DEFINITIONS)} zones and {len(HARDWARE_ID_MAP)} hardware monitors.")
+            print(f"Loaded {len(ZONE_DEFINITIONS)} zones, {len(HARDWARE_ID_MAP)} hardware monitors, cycle of {len(ZONE_CYCLE)} zones.")
     except Exception as e:
         print(f"Error loading zones.json: {e}")
 
@@ -774,6 +797,81 @@ def check_teams_window():
         was_teams_to_be_recorded = is_teams_to_be_recorded
         time.sleep(1)   
 
+def cycle_window_zone(direction):
+    global WINDOW_ZONE_INDEX, WINDOW_ZONE_LAST_PRESS
+
+    hwnd = win32gui.GetForegroundWindow()
+    if not hwnd:
+        return
+
+    now = time.monotonic()
+    last_press = WINDOW_ZONE_LAST_PRESS.get(hwnd)
+    cur_idx = WINDOW_ZONE_INDEX.get(hwnd)
+    if last_press is None or (now - last_press) > ZONE_CYCLE_RESET_SECONDS:
+        cur_idx = None
+
+    if cur_idx is None:
+        new_idx = 0 if direction > 0 else len(ZONE_CYCLE) - 1
+    else:
+        new_idx = (cur_idx + direction) % len(ZONE_CYCLE)
+
+    WINDOW_ZONE_INDEX[hwnd] = new_idx
+    WINDOW_ZONE_LAST_PRESS[hwnd] = now
+    zone_key = ZONE_CYCLE[new_idx]
+    print(f"Cycling hwnd {hwnd} to zone[{new_idx}] = {zone_key}")
+    move_window_to_zone(zone_key)
+
+
+def on_zone_cycle_next():
+    cycle_window_zone(+1)
+
+
+def on_zone_cycle_prev():
+    cycle_window_zone(-1)
+
+
+def hotkey_listener():
+    """Register ctrl+alt+shift+left/right via WinAPI RegisterHotKey and pump messages.
+
+    Using the WinAPI instead of the `keyboard` library avoids installing a
+    low-level keyboard hook (which on Windows interferes with the Win key and
+    swallows non-matching keystrokes).
+    """
+    user32 = ctypes.windll.user32
+
+    MOD_ALT = 0x0001
+    MOD_CONTROL = 0x0002
+    MOD_SHIFT = 0x0004
+    MOD_NOREPEAT = 0x4000
+    WM_HOTKEY = 0x0312
+    VK_LEFT = 0x25
+    VK_RIGHT = 0x27
+
+    HOTKEY_PREV = 1
+    HOTKEY_NEXT = 2
+
+    mods = MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT
+
+    if not user32.RegisterHotKey(None, HOTKEY_PREV, mods, VK_LEFT):
+        print("Failed to register hotkey ctrl+alt+shift+left")
+    if not user32.RegisterHotKey(None, HOTKEY_NEXT, mods, VK_RIGHT):
+        print("Failed to register hotkey ctrl+alt+shift+right")
+
+    msg = ctypes.wintypes.MSG()
+    while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+        if msg.message == WM_HOTKEY:
+            try:
+                if msg.wParam == HOTKEY_PREV:
+                    on_zone_cycle_prev()
+                elif msg.wParam == HOTKEY_NEXT:
+                    on_zone_cycle_next()
+            except Exception as e:
+                print(f"Error handling zone hotkey: {e}")
+                traceback.print_exc()
+        user32.TranslateMessage(ctypes.byref(msg))
+        user32.DispatchMessageW(ctypes.byref(msg))
+
+
 def on_layout_shortcut():
     global current_tray_layout, current_program, APP_LAYOUTS
 
@@ -824,14 +922,16 @@ def launch_program():
     ## Configure threads
     thread_macropad = threading.Thread(target=monitor_macropad, daemon=True)
     thread_teams = threading.Thread(target=check_teams_window, daemon=True)
-    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True)    
+    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True)
     thread_store_layouts = threading.Thread(target=store_layouts, daemon=True)
+    thread_hotkeys = threading.Thread(target=hotkey_listener, daemon=True)
 
     # Start threads
     thread_macropad.start()
     thread_window_hook.start()
     thread_teams.start()
     thread_store_layouts.start()
+    thread_hotkeys.start()
 
 
     # Initialize system tray icon
