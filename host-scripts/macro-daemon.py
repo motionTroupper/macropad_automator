@@ -32,6 +32,8 @@ import psutil
 import uuid
 import traceback
 import socket
+import atexit
+import faulthandler
 
 
 program_name_pattern = r'[^a-z0-9._\-\s]'
@@ -50,6 +52,82 @@ debug = True
 
 base_path = Path(sys.argv[0]).resolve().parent
 os.chdir(base_path)
+
+
+class _TimestampedWriter:
+    def __init__(self, fp):
+        self._fp = fp
+        self._lock = threading.Lock()
+        self._partial = ""
+    def write(self, s):
+        if not s:
+            return
+        try:
+            with self._lock:
+                self._partial += s
+                if "\n" in self._partial:
+                    lines = self._partial.split("\n")
+                    self._partial = lines.pop()
+                    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    for line in lines:
+                        self._fp.write(f"[{ts}] {line}\n")
+                    ## Force OS-level flush so a sudden process termination
+                    ## cannot swallow the last few lines.
+                    try:
+                        self._fp.flush()
+                        os.fsync(self._fp.fileno())
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    def flush(self):
+        try:
+            with self._lock:
+                self._fp.flush()
+        except Exception:
+            pass
+    def fileno(self):
+        return self._fp.fileno()
+    def isatty(self):
+        return False
+
+
+_log_fp = open(base_path / "macro-daemon.log", "a", buffering=1, encoding="utf-8", errors="replace")
+sys.stdout = _TimestampedWriter(_log_fp)
+sys.stderr = _TimestampedWriter(_log_fp)
+
+## Dumps a Python traceback to the log if the interpreter dies from a C-level
+## fault (segfault, abort, access violation). Crucial under pythonw where the
+## OS would otherwise swallow the crash silently.
+faulthandler.enable(file=_log_fp, all_threads=True)
+
+
+@atexit.register
+def _log_exit():
+    print(f"=== atexit: interpreter shutting down (pid={os.getpid()}) ===")
+    try:
+        _log_fp.flush()
+    except Exception:
+        pass
+
+
+def _sys_excepthook(exctype, value, tb):
+    print("=== UNHANDLED EXCEPTION (main thread) ===")
+    traceback.print_exception(exctype, value, tb)
+
+
+def _thread_excepthook(args):
+    if issubclass(args.exc_type, SystemExit):
+        return
+    thread_name = args.thread.name if args.thread else "?"
+    print(f"=== UNHANDLED EXCEPTION in thread '{thread_name}' ===")
+    traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback)
+
+
+sys.excepthook = _sys_excepthook
+threading.excepthook = _thread_excepthook
+print(f"=== macro-daemon starting (pid={os.getpid()}) ===")
+
 
 latest_uuid = None
 was_teams_running = False
@@ -797,6 +875,124 @@ def check_teams_window():
         was_teams_to_be_recorded = is_teams_to_be_recorded
         time.sleep(1)   
 
+def heartbeat():
+    tick = 0
+    while True:
+        time.sleep(2)
+        tick += 1
+        try:
+            alive = [t.name for t in threading.enumerate() if t.is_alive()]
+            print(f"[heartbeat#{tick}] alive threads={alive}")
+        except Exception as e:
+            print(f"[heartbeat] error: {e}")
+
+
+def watchdog():
+    """Writes a fresh timestamp to a dedicated file every 500 ms. Bypasses
+    the timestamped log writer / its lock entirely, so we can tell whether
+    the process is alive even if the main log is jammed on disk I/O."""
+    watchdog_path = base_path / "macro-daemon.watchdog"
+    while True:
+        try:
+            with open(watchdog_path, "w", encoding="utf-8") as f:
+                f.write(datetime.datetime.now().isoformat())
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+
+def system_event_listener():
+    """Hidden window that logs critical Windows broadcast messages so we can
+    see what Windows is sending around the time the process dies (monitor
+    disconnect, power transition, end-session, etc.)."""
+    WM_DISPLAYCHANGE   = 0x007E
+    WM_POWERBROADCAST  = 0x0218
+    WM_DEVICECHANGE    = 0x0219
+    WM_QUERYENDSESSION = 0x0011
+    WM_ENDSESSION      = 0x0016
+    WM_SETTINGCHANGE   = 0x001A
+
+    NAMES = {
+        WM_DISPLAYCHANGE: "DISPLAYCHANGE",
+        WM_POWERBROADCAST: "POWERBROADCAST",
+        WM_DEVICECHANGE: "DEVICECHANGE",
+        WM_QUERYENDSESSION: "QUERYENDSESSION",
+        WM_ENDSESSION: "ENDSESSION",
+        WM_SETTINGCHANGE: "SETTINGCHANGE",
+    }
+
+    def wndproc(hwnd, msg, wparam, lparam):
+        if msg in NAMES:
+            print(f"[winevt] {NAMES[msg]} wparam=0x{wparam:X} lparam=0x{lparam & 0xFFFFFFFF:X}")
+            try:
+                _log_fp.flush()
+                os.fsync(_log_fp.fileno())
+            except Exception:
+                pass
+        return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+    try:
+        wc = win32gui.WNDCLASS()
+        wc.lpfnWndProc = wndproc
+        wc.lpszClassName = "MacropadDaemonEventSink"
+        wc.hInstance = win32api.GetModuleHandle(None)
+        class_atom = win32gui.RegisterClass(wc)
+        hwnd = win32gui.CreateWindow(
+            class_atom, "MacropadDaemonEventSink", 0, 0, 0, 0, 0, 0, 0,
+            wc.hInstance, None
+        )
+        print(f"[winevt] hidden event window created hwnd={hwnd}")
+        win32gui.PumpMessages()
+    except Exception as e:
+        print(f"[winevt] listener died: {e}")
+        traceback.print_exc()
+
+
+def run_wsl_command(cmd):
+    try:
+        CREATE_NO_WINDOW = 0x08000000
+        subprocess.Popen(
+            ["wsl", "--"] + cmd,
+            creationflags=CREATE_NO_WINDOW,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        print(f"WSL command launched: {' '.join(cmd)}")
+    except Exception as e:
+        print(f"Error running WSL command {cmd}: {e}")
+
+
+def monitor_power_state():
+    print("Starting power state monitor")
+    last_plugged = None
+    while True:
+        try:
+            battery = psutil.sensors_battery()
+            if battery is not None:
+                plugged = bool(battery.power_plugged)
+                if last_plugged is None:
+                    last_plugged = plugged
+                    print(f"Initial power state: {'plugged' if plugged else 'unplugged'}")
+                elif plugged != last_plugged:
+                    if plugged:
+                        print("Charger connected -> starting geoserver container")
+                        run_wsl_command(["docker", "container", "start", "geoserver"])
+                    else:
+                        print("Charger disconnected -> stopping geoserver container")
+                        run_wsl_command(["docker", "container", "stop", "geoserver"])
+                    last_plugged = plugged
+        except Exception as e:
+            print(f"Error monitoring power state: {e}")
+        time.sleep(2)
+
+
 def cycle_window_zone(direction):
     global WINDOW_ZONE_INDEX, WINDOW_ZONE_LAST_PRESS
 
@@ -920,11 +1116,15 @@ def launch_program():
     keyboard.add_hotkey('left alt+shift', on_layout_shortcut, suppress=False)
 
     ## Configure threads
-    thread_macropad = threading.Thread(target=monitor_macropad, daemon=True)
-    thread_teams = threading.Thread(target=check_teams_window, daemon=True)
-    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True)
-    thread_store_layouts = threading.Thread(target=store_layouts, daemon=True)
-    thread_hotkeys = threading.Thread(target=hotkey_listener, daemon=True)
+    thread_macropad = threading.Thread(target=monitor_macropad, daemon=True, name="macropad")
+    thread_teams = threading.Thread(target=check_teams_window, daemon=True, name="teams")
+    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True, name="winhook")
+    thread_store_layouts = threading.Thread(target=store_layouts, daemon=True, name="store_layouts")
+    thread_hotkeys = threading.Thread(target=hotkey_listener, daemon=True, name="hotkeys")
+    thread_power = threading.Thread(target=monitor_power_state, daemon=True, name="power")
+    thread_heartbeat = threading.Thread(target=heartbeat, daemon=True, name="heartbeat")
+    thread_winevt = threading.Thread(target=system_event_listener, daemon=True, name="winevt")
+    thread_watchdog = threading.Thread(target=watchdog, daemon=True, name="watchdog")
 
     # Start threads
     thread_macropad.start()
@@ -932,10 +1132,19 @@ def launch_program():
     thread_teams.start()
     thread_store_layouts.start()
     thread_hotkeys.start()
+    thread_power.start()
+    thread_heartbeat.start()
+    thread_winevt.start()
+    thread_watchdog.start()
 
 
     # Initialize system tray icon
-    icon_global.run()
+    try:
+        icon_global.run()
+        print("[main] icon_global.run() returned cleanly — main thread will exit")
+    except Exception as e:
+        print(f"[main] icon_global.run() raised: {e}")
+        traceback.print_exc()
 
 def change_tray_icon_layout(layout_id):
     global current_tray_layout, icon_global
@@ -1020,19 +1229,22 @@ def respawn():
 
 def window_change_callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
     global current_program, current_program_hwnd, current_tray_layout
-
-    active_program = active_program_name()
-    if active_program == current_program:
-        ## No change
-        return
-    elif event == EVENT_SYSTEM_FOREGROUND:
-        ## Focus changed
-        print(f"Detected focus change to HWND: {hwnd}")
-        setup_program(active_program, hwnd)
-    elif event == EVENT_OBJECT_NAMECHANGE:
-        ## Title changed
-        print(f"Detected title change in HWND: {hwnd}")
-        setup_program(active_program, hwnd)
+    try:
+        active_program = active_program_name()
+        if active_program == current_program:
+            ## No change
+            return
+        elif event == EVENT_SYSTEM_FOREGROUND:
+            ## Focus changed
+            print(f"Detected focus change to HWND: {hwnd}")
+            setup_program(active_program, hwnd)
+        elif event == EVENT_OBJECT_NAMECHANGE:
+            ## Title changed
+            print(f"Detected title change in HWND: {hwnd}")
+            setup_program(active_program, hwnd)
+    except Exception as e:
+        print(f"Error in window_change_callback: {e}")
+        traceback.print_exc()
 
 def monitor_windows():
     global _event_proc, current_program, current_program_hwnd

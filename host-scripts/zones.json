@@ -1,10 +1,9 @@
 {
   "cycle": [
     "top-full", 
-    "laptop-full",
-    "left-top+mid", 
     "left-full",
-    "top-right"
+    "left-top+mid",
+    "laptop-full"
   ],
 
   "hardware_mapping": {
