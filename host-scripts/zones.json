@@ -7,8 +7,11 @@
   ],
 
   "hardware_mapping": {
+    "SAM1015": "left",
     "SAM7119": "top-left", 
     "SAM711A": "top-right",
+    "SAM711A_0": "top-left",
+    "SAM711A_1": "top-left",
     "SAM1018": "left",    
     "BOE0BC9": "laptop",
     "PHLC17B_0": "top-left",

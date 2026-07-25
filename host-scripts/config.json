@@ -125,6 +125,15 @@
             "c1":"ffffff"
         }
     },
+    "vscode":{
+        "layout":"EN",
+        "keys":{
+            "b4":"\\C\\Sv'"
+        },
+        "colors":{
+            "b4":"0000ff"
+        }
+    },
     ".":{
         "layout":"EN",
         "layouts": {
@@ -144,8 +153,8 @@
                 "multiple_instances": false
             },
             "Ubuntu-tab":{
-                "program_old":"wt -w 0 nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
-                "program":"wt -w 0 nt -p \"Ubuntu\" ",
+                "program_old":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
+                "program":"wt -w new nt -p \"Ubuntu\" ",
                 "window":"WindowsTerminal.exe",
                 "multiple_instances": true
             }
@@ -258,6 +267,8 @@
             "a3":"MSG:TOGGLE:camera",
             "a4":"MSG:TOGGLE:microphone",
 
+
+            "b1-b4":"MSG:IDLE:5,30",
 
             "b1-b2":"MSG:SCREEN:top-left",
             "b3-b4":"MSG:SCREEN:top-right",

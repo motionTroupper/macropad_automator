@@ -34,6 +34,7 @@ import traceback
 import socket
 import atexit
 import faulthandler
+import tempfile
 
 
 program_name_pattern = r'[^a-z0-9._\-\s]'
@@ -48,15 +49,35 @@ except Exception:
     except Exception:
         ctypes.windll.user32.SetProcessDPIAware()
 
-debug = True
+## --- Feature flags --------------------------------------------------------
+## Verbose logging: per-window-event prints (config lookups, macropad sends,
+## layout changes). Off for normal operation; flip True when diagnosing.
+debug = False
 
+## Diagnostic threads: heartbeat (every-2s thread census) and the hidden-window
+## Windows broadcast listener (DISPLAYCHANGE/POWERBROADCAST/...). Both purely
+## informative — leave off unless you're hunting a freeze/crash.
+DIAGNOSTICS_ENABLED = False
+
+## --- Paths ----------------------------------------------------------------
 base_path = Path(sys.argv[0]).resolve().parent
 os.chdir(base_path)
 
+## Logs and the watchdog file live under %TEMP%/macropad-automator so the
+## script's working directory stays clean and supervisor.py sees the same
+## paths without having to coordinate.
+log_base = Path(tempfile.gettempdir()) / "macropad-automator"
+log_base.mkdir(parents=True, exist_ok=True)
+
 
 class _TimestampedWriter:
-    def __init__(self, fp):
+    def __init__(self, fp, console=None):
         self._fp = fp
+        ## When launched from a terminal (python.exe) we also tee to the
+        ## original console stream so logs are visible live without tailing
+        ## the file. Under pythonw there is no console and `console` is None,
+        ## so we silently write only to the file.
+        self._console = console
         self._lock = threading.Lock()
         self._partial = ""
     def write(self, s):
@@ -70,7 +91,13 @@ class _TimestampedWriter:
                     self._partial = lines.pop()
                     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     for line in lines:
-                        self._fp.write(f"[{ts}] {line}\n")
+                        stamped = f"[{ts}] {line}\n"
+                        self._fp.write(stamped)
+                        if self._console is not None:
+                            try:
+                                self._console.write(stamped)
+                            except Exception:
+                                pass
                     ## Force OS-level flush so a sudden process termination
                     ## cannot swallow the last few lines.
                     try:
@@ -78,12 +105,22 @@ class _TimestampedWriter:
                         os.fsync(self._fp.fileno())
                     except Exception:
                         pass
+                    if self._console is not None:
+                        try:
+                            self._console.flush()
+                        except Exception:
+                            pass
         except Exception:
             pass
     def flush(self):
         try:
             with self._lock:
                 self._fp.flush()
+                if self._console is not None:
+                    try:
+                        self._console.flush()
+                    except Exception:
+                        pass
         except Exception:
             pass
     def fileno(self):
@@ -92,9 +129,14 @@ class _TimestampedWriter:
         return False
 
 
-_log_fp = open(base_path / "macro-daemon.log", "a", buffering=1, encoding="utf-8", errors="replace")
-sys.stdout = _TimestampedWriter(_log_fp)
-sys.stderr = _TimestampedWriter(_log_fp)
+## "w" so each daemon run starts with a fresh log. The supervisor relaunches
+## us on death, so accumulated history just makes it harder to find the
+## latest cause; cross-run history lives in macro-supervisor.log instead.
+_log_fp = open(log_base / "macro-daemon.log", "w", buffering=1, encoding="utf-8", errors="replace")
+## Capture the original console streams before reassigning; these are None
+## under pythonw (no console) and a real stream when launched from a terminal.
+sys.stdout = _TimestampedWriter(_log_fp, console=sys.__stdout__)
+sys.stderr = _TimestampedWriter(_log_fp, console=sys.__stderr__)
 
 ## Dumps a Python traceback to the log if the interpreter dies from a C-level
 ## fault (segfault, abort, access violation). Crucial under pythonw where the
@@ -146,6 +188,12 @@ TEAMS_RECORDING_TOP = 0
 TEAMS_RECORDING_LEFT = 0
 TEAMS_TOP = 0
 TEAMS_LEFT = 0
+## Pixel slack when matching a live Teams window against the stored zone
+## corner. A DPI-aware, multi-process window can settle a couple of pixels off
+## the requested position, so exact equality is too brittle. The two Teams
+## zones (recording vs paused) are a full monitor-third apart, so this slack
+## can never make one match the other.
+TEAMS_ZONE_MATCH_TOLERANCE = 20
 icon_global = None
 
 current_tray_layout = None
@@ -184,10 +232,36 @@ LAYOUT_MAP = {
     }
 }
 
+## Programs whose layout we always force, regardless of APP_LAYOUTS state.
+## Useful for Electron/WebView2 hosts (Teams, the new Outlook, ...) where in-
+## process layout detection is unreliable — we'd rather guarantee a layout
+## than let stale or partial signals win. Substring match against the lower-
+## cased active program name.
+FORCE_LAYOUT_BY_SUBSTRING = {
+    'ateams': 0x040a0c0a,   # Spanish (Spain)
+}
+
+
+def force_layout_for_program(active_program):
+    if not active_program:
+        return None
+    name = active_program.lower()
+    for substring, hkl in FORCE_LAYOUT_BY_SUBSTRING.items():
+        if substring in name:
+            return hkl
+    return None
+
 ## Windows Event Hook constants
 EVENT_SYSTEM_FOREGROUND = 0x0003
 WINEVENT_OUTOFCONTEXT = 0x0000
 EVENT_OBJECT_NAMECHANGE = 0x800C
+
+## Used to filter SetWinEventHook callbacks to actual window events
+## (idObject=OBJID_WINDOW, idChild=CHILDID_SELF). Without this filter
+## NAMECHANGE fires for every UI element in the system — toolbars, list
+## items, icons — which is a huge amount of work for nothing.
+OBJID_WINDOW = 0
+CHILDID_SELF = 0
 
 ## Define the callback function type
 WinEventProcType = ctypes.WINFUNCTYPE(
@@ -220,6 +294,7 @@ running_config={}       ## Current active configuration
 macropad_config={}      ## Last sent configuration to macropad
 all_configurations={}   ## All loaded configurations
 all_configurations_version=None
+all_configurations_keys=[]  ## Keys of all_configurations, sorted; cached on reload
 toggles={}              ## Toggles state
 
 
@@ -395,22 +470,78 @@ def move_window_to_zone(zone_key):
     final_w = raw_w + BORDER_OFFSET["w"] + app_adj.get("w",0)
     final_h = raw_h + BORDER_OFFSET["h"] + app_adj.get("h",0)
 
-    # EXECUTE 
+    # EXECUTE
     try:
+        ## Move twice on purpose. When a window crosses to a monitor with a
+        ## different DPI scale, Windows fires WM_DPICHANGED *during* the move
+        ## and rescales the window, so a single MoveWindow lands it in the
+        ## right spot but too small. The first call settles the window on the
+        ## target monitor (and thus its DPI); the second applies the final
+        ## size at that DPI. On a same-monitor move the second call is a
+        ## harmless no-op.
+        win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
         win32gui.MoveWindow(hwnd, final_x, final_y, final_w, final_h, True)
         win32gui.SetForegroundWindow(hwnd)
-        
+
+        ## Record where the window ACTUALLY ended up, not where we asked it to
+        ## go. A DPI-aware target (Teams is WebView2/multi-process) can settle
+        ## a few pixels off `final_x/final_y` after the WM_DPICHANGED reflow,
+        ## and check_teams_window matches these against the live window rect —
+        ## so storing the requested coords would make the (tolerant) match miss.
+        actual_left, actual_top, _, _ = win32gui.GetWindowRect(hwnd)
+
         if zone.get("is_teams_recording_zone", False):
-            TEAMS_RECORDING_LEFT = final_x
-            TEAMS_RECORDING_TOP = final_y
+            TEAMS_RECORDING_LEFT = actual_left
+            TEAMS_RECORDING_TOP = actual_top
 
         if zone.get("is_teams_zone", False):
-            TEAMS_LEFT = final_x
-            TEAMS_TOP = final_y
-        
+            TEAMS_LEFT = actual_left
+            TEAMS_TOP = actual_top
+
     except Exception as e:
         print(f"Error: {e}")
 
+
+
+def toggle_monitor_timeout(spec):
+    """Toggle the display-off idle timeout between two values (minutes),
+    applied to both AC (plugged) and DC (battery) power states.
+
+    `spec` is "low,high" (e.g. "5,30"). The current value is read from the
+    active power scheme rather than kept in memory, so the toggle survives a
+    daemon restart."""
+    CREATE_NO_WINDOW = 0x08000000
+    try:
+        low_str, high_str = spec.split(",")
+        low, high = int(low_str), int(high_str)
+    except Exception as e:
+        print(f"Invalid IDLE spec '{spec}': {e}")
+        return
+
+    try:
+        out = subprocess.run(
+            ["powercfg", "/query", "SCHEME_CURRENT", "SUB_VIDEO", "VIDEOIDLE"],
+            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW,
+        ).stdout
+        m = re.search(r"Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)", out)
+        current_min = int(m.group(1), 16) // 60 if m else None
+    except Exception as e:
+        print(f"Error querying monitor timeout: {e}")
+        current_min = None
+
+    ## Switch to `high` only when we are currently at `low`; anything else
+    ## (unknown, or already high) drops back to `low`.
+    target = high if current_min == low else low
+
+    try:
+        for opt in ("monitor-timeout-ac", "monitor-timeout-dc"):
+            subprocess.run(
+                ["powercfg", "-change", opt, str(target)],
+                creationflags=CREATE_NO_WINDOW,
+            )
+        print(f"Monitor idle timeout set to {target} min (was {current_min})")
+    except Exception as e:
+        print(f"Error setting monitor timeout: {e}")
 
 
 def open_window(regexp_filter):
@@ -473,30 +604,28 @@ def open_window(regexp_filter):
 
 
 def lookup_config(window_title):
-    global all_configurations, all_configurations_version, toggles
+    global all_configurations, all_configurations_version, all_configurations_keys, toggles
 
     try:
         config_version = datetime.datetime.fromtimestamp(Path("./config.json").stat().st_mtime)
 
+        ## Reload (and re-sort keys) only when config.json has actually changed.
+        ## On steady state this is a single stat() call per focus change.
         if config_version != all_configurations_version:
             all_configurations_version = config_version
             with open("./config.json", 'r') as file:
                 all_configurations = json.load(file)
-
-        config_keys = sorted(all_configurations.keys(), key=len, reverse=False)
-
-        print (f"Keys are {config_keys}")
+            all_configurations_keys = sorted(all_configurations.keys(), key=len, reverse=False)
+            print(f"Loaded {len(all_configurations_keys)} config keys: {all_configurations_keys}")
 
         new_config = {
             "window": None,
             "colors": {},
-            "keys": {}  
+            "keys": {}
         }
-        print (f"config keys are {config_keys}")
-        for config_key in config_keys:
-            #print (f"Procesando {config_key} para {window_title}")
-            if re.search(config_key, window_title,re.IGNORECASE) or config_key=='.':
-                print(f"{config_key} matched for {window_title}")  
+        for config_key in all_configurations_keys:
+            if re.search(config_key, window_title, re.IGNORECASE) or config_key == '.':
+                debug and print(f"{config_key} matched for {window_title}")
                 if not new_config['window']:
                     new_config['window'] = config_key
 
@@ -577,61 +706,85 @@ def toggle_key(toggle_name):
 def get_active_window():
     window = win32gui.GetForegroundWindow()
     if not window:
-        return 'None'
+        return None, None
 
     window_title = win32gui.GetWindowText(window)
     _, pid = win32process.GetWindowThreadProcessId(window)
 
     try:
-        process = psutil.Process(pid)
-        executable = process.name() 
-        window_title = win32gui.GetWindowText(window)
+        executable = psutil.Process(pid).name()
     except psutil.NoSuchProcess:
-        return None,None
+        return None, None
 
-    return executable,window_title
+    return executable, window_title
 
 
 def active_program_name():
     try:
         active_program, active_window = get_active_window()
-    except Exception as ex:
-        active_program = 'explorer.exe'
+    except Exception:
+        active_program, active_window = None, None
 
-    active_program = re.sub(normalize_program_name_re, '', str(active_program.lower())).strip()[:50]
-    active_window = re.sub(normalize_program_name_re, '', str(active_window.lower())).strip()[:50]
+    if not active_program:
+        active_program = 'explorer.exe'
+    if not active_window:
+        active_window = ''
+
+    active_program = re.sub(normalize_program_name_re, '', active_program.lower()).strip()[:50]
+    active_window = re.sub(normalize_program_name_re, '', active_window.lower()).strip()[:50]
 
     if active_program == 'chrome.exe':
         active_program = active_window.split(' - ')[0]
     elif active_program == 'msrdc.exe':
         active_program = active_window
+    elif active_program == 'code.exe':
+        ## VS Code, like Chrome, is one process hosting many tabs, so the process
+        ## name alone can't tell a Claude conversation from a code editor.
+        ## Identify by the tab (the window title's first segment) with a
+        ## 'vscode ' prefix: each tab gets its own APP_LAYOUTS entry and keeps
+        ## whatever layout you set for it (config's 'vscode' -> EN by default;
+        ## switch a Claude tab to ES once and it sticks).
+        active_program = 'vscode ' + active_window.split(' - ')[0]
 
     return active_program
 
 def send_command_to_macropad(command_dict):
     global serial_port, macropad_config
 
-    ## Avoid sending same config again
+    ## Avoid spamming the macropad with identical configs on every window
+    ## focus event. This is also where the `Sending command` print used to
+    ## spam the log; gated behind `debug`.
     if command_dict == macropad_config:
-        print (f"Configuration unchanged, not sending to macropad")
-        #return
-    
+        debug and print("Configuration unchanged, skipping macropad send")
+        return
+
     macropad_config = command_dict.copy()
     with serial_lock:
-        print (f"Sending command to macropad")
+        debug and print("Sending command to macropad")
         command = json.dumps(macropad_config) + '\n'
-        serial_port.write(command.encode())
-        serial_port.flush()
+        try:
+            serial_port.write(command.encode())
+            serial_port.flush()
+        except Exception as e:
+            print(f"Serial write failed: {e}")
 
 def setup_program_macropad(active_program):
     global running_config
-    print (f"Setting up macropad for program: {active_program}")
+    debug and print(f"Setting up macropad for program: {active_program}")
     running_config = lookup_config(active_program)
     send_command_to_macropad(running_config)
 
-def get_app_layout():
+def get_app_layout(active_program):
     global APP_LAYOUTS
-    active_program = active_program_name()
+
+    ## Use the program the switch was decided on (passed in), never re-resolved
+    ## here — re-resolving used to race and hand back the wrong program.
+
+    ## Forced layouts (e.g. Teams) win over anything saved in APP_LAYOUTS.
+    forced = force_layout_for_program(active_program)
+    if forced is not None:
+        debug and print(f"Forcing layout {LAYOUT_MAP.get(forced,{}).get('name', '?')} for {active_program}")
+        return forced
 
     if active_program in APP_LAYOUTS:
         app_layout = APP_LAYOUTS[active_program]['layout']
@@ -641,17 +794,17 @@ def get_app_layout():
         APP_LAYOUTS[active_program]= {
             "layout": app_layout,
             "last_used": datetime.datetime.now().isoformat()
-        }   
-    debug and print (f"Layout for {active_program} is {LAYOUT_MAP.get(app_layout,{}).get('name', 'Unknown')}")
+        }
+    debug and print(f"Layout for {active_program} is {LAYOUT_MAP.get(app_layout,{}).get('name', 'Unknown')}")
     return app_layout
 
 def setup_program_layout(active_program):
-    print (f"Setting up layout for program: {active_program}")
+    debug and print(f"Setting up layout for program: {active_program}")
 
     ## Get required layout
-    required_layout_id = get_app_layout()
+    required_layout_id = get_app_layout(active_program)
     if not required_layout_id:
-        print ("No layout required")
+        debug and print("No layout required")
         return
     
     ## Get current layout
@@ -675,17 +828,24 @@ def setup_program_layout(active_program):
         ## Verify change and retry with SendMessage if needed
         current_layout = ctypes.windll.user32.GetKeyboardLayout(thread_id)
         if current_layout != required_layout_id:
-            win32gui.SendMessage(hwnd, win32con.WM_INPUTLANGCHANGEREQUEST, 0, required_layout_id)   
+            win32gui.SendMessage(hwnd, win32con.WM_INPUTLANGCHANGEREQUEST, 0, required_layout_id)
 
     change_tray_icon_layout(required_layout_id)
+
 
 def setup_program(active_program, hwnd):
     global current_program, current_program_hwnd
     print(f"Switching to program: {active_program}")
-    setup_program_macropad(active_program)
-    setup_program_layout(active_program)
+    ## Mark the new program BEFORE applying its layout. setup_program_layout is
+    ## slow (posts the layout change and redraws the tray icon) and the keyboard
+    ## monitor runs concurrently: if current_program still pointed at the OLD
+    ## program when the monitor saw the new layout land, it saved that layout
+    ## under the old program (e.g. EN under the Claude tab on a tab switch).
+    ## Setting it first attributes the observed change to the right program.
     current_program = active_program
     current_program_hwnd = hwnd
+    setup_program_macropad(active_program)
+    setup_program_layout(active_program)
 
 
 def serial_port_initialize():
@@ -758,6 +918,8 @@ def process_serial_queue():
             move_window_to_zone(screen_code)
         elif data['code'][:6]=='SLEEP:':
             enter_suspend_state(data)
+        elif data['code'][:5]=='IDLE:':
+            toggle_monitor_timeout(data['code'][5:])
 
 
 # Function to quit the application
@@ -772,6 +934,14 @@ def chat_title(title):
             return parts[i - 1]
     return None
 
+def at_teams_zone(window, zone_top, zone_left):
+    ## A zone corner of (0, 0) means "never set this run" — don't match stray
+    ## windows sitting near the screen origin against an unconfigured zone.
+    if zone_top == 0 and zone_left == 0:
+        return False
+    return (abs(window.top - zone_top) <= TEAMS_ZONE_MATCH_TOLERANCE and
+            abs(window.left - zone_left) <= TEAMS_ZONE_MATCH_TOLERANCE)
+
 def check_teams_window():
     global was_teams_running, was_teams_to_be_recorded, TEAMS_RECORDING_TOP, TEAMS_RECORDING_LEFT, TEAMS_LEFT, TEAMS_TOP
     print ("Starting Teams window monitor")
@@ -781,14 +951,14 @@ def check_teams_window():
         for window in gw.getAllWindows():
             title = window.title or ""
             title_lower = title.lower()
-            if "teams" in title_lower and window.top == TEAMS_RECORDING_TOP and window.left == TEAMS_RECORDING_LEFT:
+            if "teams" in title_lower and at_teams_zone(window, TEAMS_RECORDING_TOP, TEAMS_RECORDING_LEFT):
                 print (f"All window info: {window}")
                 teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(title) or 'Meeting'}"
                 print (f"Found Teams window: {teams_app}")
                 is_teams_running = True
                 is_teams_to_be_recorded = True
 
-            if "teams" in title_lower and window.top == TEAMS_TOP and window.left == TEAMS_LEFT:
+            if "teams" in title_lower and at_teams_zone(window, TEAMS_TOP, TEAMS_LEFT):
                 print (f"All window info: {window}")
                 teams_app = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_{chat_title(title) or 'Meeting'}"
                 print (f"Found Teams window: {teams_app}")
@@ -888,19 +1058,15 @@ def heartbeat():
 
 
 def watchdog():
-    """Writes a fresh timestamp to a dedicated file every 500 ms. Bypasses
-    the timestamped log writer / its lock entirely, so we can tell whether
-    the process is alive even if the main log is jammed on disk I/O."""
-    watchdog_path = base_path / "macro-daemon.watchdog"
+    """Refreshes a dedicated file every 500 ms; supervisor.py watches its
+    mtime to detect a hung daemon. Uses its own file handle (no shared lock)
+    and skips fsync — the OS updates mtime on write, which is all the
+    supervisor checks via stat()."""
+    watchdog_path = log_base / "macro-daemon.watchdog"
     while True:
         try:
             with open(watchdog_path, "w", encoding="utf-8") as f:
                 f.write(datetime.datetime.now().isoformat())
-                f.flush()
-                try:
-                    os.fsync(f.fileno())
-                except Exception:
-                    pass
         except Exception:
             pass
         time.sleep(0.5)
@@ -1068,26 +1234,93 @@ def hotkey_listener():
         user32.DispatchMessageW(ctypes.byref(msg))
 
 
-def on_layout_shortcut():
-    global current_tray_layout, current_program, APP_LAYOUTS
+def monitor_keyboard_layout():
+    """Polls the foreground window's keyboard layout every 250 ms and
+    persists changes for the current program.
 
-    print ("Layout change detected, saving current program layout...")
-    if not current_program:
-        print ("No current program to save layout for.")
-        return
-    
-    if current_tray_layout == 0x04090409:
-        print ("Current layout is US English, switching to Spanish.")
-        target_layout = 0x040a0c0a
-    else:
-        print ("Current layout is not US English, switching to US English.")
-        target_layout = 0x04090409
+    Known limitation: doesn't reliably catch in-place layout changes inside
+    Electron / WebView2 hosts (Teams, the new Outlook, ...) because their
+    actual keyboard input is dispatched in a renderer subprocess and the
+    foreground (host) thread's HKL doesn't consistently reflect what the
+    user just selected. Tried TSF (ITfInputProcessorProfiles::GetCurrent
+    Language) — turns out that interface reports *this* process's TSF
+    state, not the system's, so it doesn't help for cross-process layout
+    detection. For Teams, the previously saved layout is still applied
+    on focus change via setup_program_layout; only Win+Space switches
+    made while staying inside the app are not auto-detected.
 
-    APP_LAYOUTS[current_program]['layout'] = target_layout
-    current_tray_layout = target_layout
-    setup_program_layout(current_program)
-    change_tray_icon_layout(target_layout)
-    save_current_program()
+    Race-safe: only persists a change when the foreground HWND hasn't moved
+    since the previous tick. A different HWND means the layout difference
+    is just the new window's input language, not a user-triggered switch,
+    so we resync silently and leave APP_LAYOUTS untouched."""
+    user32 = ctypes.windll.user32
+
+    last_layout = None
+    last_hwnd = None
+    last_program = None
+    while True:
+        time.sleep(0.25)
+        try:
+            fg_hwnd = user32.GetForegroundWindow()
+            if not fg_hwnd:
+                continue
+            fg_thread = user32.GetWindowThreadProcessId(fg_hwnd, None)
+            if not fg_thread:
+                continue
+            layout = user32.GetKeyboardLayout(fg_thread) & 0xFFFFFFFF
+            prog = current_program
+
+            if last_hwnd is None:
+                last_layout = layout
+                last_hwnd = fg_hwnd
+                last_program = prog
+                continue
+
+            if fg_hwnd != last_hwnd:
+                last_layout = layout
+                last_hwnd = fg_hwnd
+                last_program = prog
+                continue
+
+            ## A program switch (even within the same window, e.g. a VS Code tab
+            ## change) means any layout difference we see now is us applying the
+            ## new program's layout — or the previous program's layout landing
+            ## late — not a user Win+Space. Re-baseline and DON'T persist;
+            ## otherwise a fast A->B->A switch saves B's layout under A. We only
+            ## learn when both the window AND the program stayed put.
+            if prog != last_program:
+                last_layout = layout
+                last_program = prog
+                continue
+
+            if layout == last_layout:
+                continue
+
+            prev_name = LAYOUT_MAP.get(last_layout, {}).get('name', f'0x{last_layout:08X}')
+            new_name = LAYOUT_MAP.get(layout, {}).get('name', f'0x{layout:08X}')
+            print(f"Keyboard layout changed for HWND {fg_hwnd}: {prev_name} -> {new_name}")
+            last_layout = layout
+
+            if not prog:
+                continue
+
+            ## Programs with a forced layout ignore observed OS changes: the
+            ## forced value (e.g. ESP for Teams) re-applies on next focus
+            ## event via setup_program_layout, and we don't want stale or
+            ## unreliable WebView2-side detection to clobber that.
+            if force_layout_for_program(prog) is not None:
+                continue
+
+            entry = APP_LAYOUTS.setdefault(prog, {})
+            entry['layout'] = layout
+            entry['last_used'] = datetime.datetime.now().isoformat()
+            try:
+                change_tray_icon_layout(layout)
+            except Exception as e:
+                print(f"Failed to update tray icon: {e}")
+        except Exception as e:
+            print(f"Layout monitor error: {e}")
+
 
 # Cargar una imagen para el icono
 def store_layouts():
@@ -1111,31 +1344,25 @@ def launch_program():
     menu = (item('Quit', quit),)
     icon_global = Icon("Macropad", image, menu=menu)
 
-    ## Hook for layout change
-    keyboard.add_hotkey('windows+space', on_layout_shortcut, suppress=False)
-    keyboard.add_hotkey('left alt+shift', on_layout_shortcut, suppress=False)
+    ## Worker threads. Watchdog is mandatory because supervisor.py uses it to
+    ## detect hangs. Heartbeat and winevt listener are pure diagnostics —
+    ## only spawned when DIAGNOSTICS_ENABLED is True.
+    threads = [
+        threading.Thread(target=monitor_macropad, daemon=True, name="macropad"),
+        threading.Thread(target=monitor_windows, daemon=True, name="winhook"),
+        threading.Thread(target=monitor_keyboard_layout, daemon=True, name="kblayout"),
+        threading.Thread(target=check_teams_window, daemon=True, name="teams"),
+        threading.Thread(target=store_layouts, daemon=True, name="store_layouts"),
+        threading.Thread(target=hotkey_listener, daemon=True, name="hotkeys"),
+        threading.Thread(target=monitor_power_state, daemon=True, name="power"),
+        threading.Thread(target=watchdog, daemon=True, name="watchdog"),
+    ]
+    if DIAGNOSTICS_ENABLED:
+        threads.append(threading.Thread(target=heartbeat, daemon=True, name="heartbeat"))
+        threads.append(threading.Thread(target=system_event_listener, daemon=True, name="winevt"))
 
-    ## Configure threads
-    thread_macropad = threading.Thread(target=monitor_macropad, daemon=True, name="macropad")
-    thread_teams = threading.Thread(target=check_teams_window, daemon=True, name="teams")
-    thread_window_hook = threading.Thread(target=monitor_windows, daemon=True, name="winhook")
-    thread_store_layouts = threading.Thread(target=store_layouts, daemon=True, name="store_layouts")
-    thread_hotkeys = threading.Thread(target=hotkey_listener, daemon=True, name="hotkeys")
-    thread_power = threading.Thread(target=monitor_power_state, daemon=True, name="power")
-    thread_heartbeat = threading.Thread(target=heartbeat, daemon=True, name="heartbeat")
-    thread_winevt = threading.Thread(target=system_event_listener, daemon=True, name="winevt")
-    thread_watchdog = threading.Thread(target=watchdog, daemon=True, name="watchdog")
-
-    # Start threads
-    thread_macropad.start()
-    thread_window_hook.start()
-    thread_teams.start()
-    thread_store_layouts.start()
-    thread_hotkeys.start()
-    thread_power.start()
-    thread_heartbeat.start()
-    thread_winevt.start()
-    thread_watchdog.start()
+    for t in threads:
+        t.start()
 
 
     # Initialize system tray icon
@@ -1151,22 +1378,6 @@ def change_tray_icon_layout(layout_id):
     new_icon = LAYOUT_MAP.get(layout_id,{}).get('icon','default_icon.png')
     icon_global.icon = Image.open(new_icon)
     current_tray_layout = layout_id
-
-def save_current_program():
-    global APP_LAYOUTS, current_tray_layout, icon_global, current_program_hwnd, current_program
-
-    ## Prevent null program
-    if not current_program:
-        return
-
-    ## Check for layout change
-    layout_id = current_tray_layout
-
-    print (f"Saving layout {LAYOUT_MAP.get(layout_id,{}).get('name', 'Unknown')} for program {current_program}")
-
-    APP_LAYOUTS[current_program]['layout']=layout_id
-    APP_LAYOUTS[current_program]['last_used']=datetime.datetime.now().isoformat()
-    
 
 def kill_other_instances_same_script():
     me = os.getpid()
@@ -1228,20 +1439,36 @@ def respawn():
     sys.exit()
 
 def window_change_callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
-    global current_program, current_program_hwnd, current_tray_layout
+    global current_program, current_program_hwnd
     try:
+        ## EVENT_OBJECT_NAMECHANGE fires for *every* UI element in the system —
+        ## toolbar items, listbox entries, taskbar buttons. We only care about
+        ## actual top-level window events. This filter drops ~95% of callbacks
+        ## before we touch psutil/win32 at all.
+        if idObject != OBJID_WINDOW or idChild != CHILDID_SELF:
+            return
+
+        ## For title changes, ignore background windows; we only react when
+        ## the foreground app retitles itself (e.g. Chrome tab switch).
+        if event == EVENT_OBJECT_NAMECHANGE:
+            if hwnd != win32gui.GetForegroundWindow():
+                return
+        elif event != EVENT_SYSTEM_FOREGROUND:
+            return
+
+        ## Cheap HWND comparison before the expensive psutil lookup. Only
+        ## valid for FOREGROUND (NAMECHANGE on the same HWND can still mean
+        ## the resolved program changed, e.g. a Chrome retitle).
+        if event == EVENT_SYSTEM_FOREGROUND and hwnd == current_program_hwnd:
+            return
+
         active_program = active_program_name()
         if active_program == current_program:
-            ## No change
+            current_program_hwnd = hwnd
             return
-        elif event == EVENT_SYSTEM_FOREGROUND:
-            ## Focus changed
-            print(f"Detected focus change to HWND: {hwnd}")
-            setup_program(active_program, hwnd)
-        elif event == EVENT_OBJECT_NAMECHANGE:
-            ## Title changed
-            print(f"Detected title change in HWND: {hwnd}")
-            setup_program(active_program, hwnd)
+
+        print(f"Focus -> {active_program} (HWND {hwnd}, event {event:#x})")
+        setup_program(active_program, hwnd)
     except Exception as e:
         print(f"Error in window_change_callback: {e}")
         traceback.print_exc()
@@ -1282,7 +1509,8 @@ if __name__ == "__main__":
     ## Globally initialize serial port
     serial_port_initialize()
 
-    ## Print monitor IDs and load zones
+    ## Inventory of monitors at startup is purely informational — log it only
+    ## when debugging because it can be noisy on multi-monitor setups.
     print_monitor_ids()
     load_zones_config()
 
