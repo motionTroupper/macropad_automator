@@ -1,0 +1,9 @@
+{
+  "deployments": {
+    "repository": {
+      "type": "filesystem",
+      "synchronization": "overwrite",
+      "exceptions": []
+    }
+  }
+}
