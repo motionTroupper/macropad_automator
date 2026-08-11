@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/mnt/c/Users/raul.mzabala/Local data/macropad_automator/host-scripts/macro-daemon.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
+    ]
+  }
+}

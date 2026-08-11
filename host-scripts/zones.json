@@ -20,7 +20,13 @@
     "ACR079A_0": "top-left",
     "ACR079A_1": "top-right"
   },
-  
+
+  "custom_inactivity_check": {
+    "SAM7119": 3600,
+    "SAM711A": 3600,
+    "SAM1017": 3600
+  },
+
   "offsets-default":{
     "x": -8,
     "y": -1,
