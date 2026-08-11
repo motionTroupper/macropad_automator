@@ -1,0 +1,29 @@
+{
+    "symbols": {
+        "0": "ZERO",
+        "1": "ONE",
+        "2": "TWO",
+        "3": "THREE",
+        "4": "FOUR",
+        "5": "FIVE",
+        "6": "SIX",
+        "7": "SEVEN",
+        "8": "EIGHT",
+        "9": "NINE",
+        "-": "MINUS"
+    },
+    "colors": {
+        "a1": "ffaa00", "a2": "000000", "a3": "000000", "a4": "000000",
+        "b1": "00aaff", "b2": "000000", "b3": "000000", "b4": "000000",
+        "c1": "00ff00", "c2": "000000", "c3": "000000", "c4": "000000",
+        "d1": "ff0000", "d2": "000000", "d3": "000000", "d4": "000000",
+        "e1": "000000", "e2": "000000", "e3": "000000", "e4": "000000",
+        "f1": "000000", "f2": "000000", "f3": "000000", "f4": "000000"
+    },
+    "keys": {
+        "a1-a3-a4": "XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX-XXXXXX",
+        "b1-b3-b4": "YYYYYY-YYYYYY-YYYYYY-YYYYYY-YYYYYY-YYYYYY-YYYYYY-YYYYYY",
+        "c1-c2": "USB:EXPOSE",
+        "d1-d2": "USB:HIDE"
+    }
+}

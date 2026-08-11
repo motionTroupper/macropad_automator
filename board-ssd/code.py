@@ -17,6 +17,8 @@ from adafruit_hid.keycode import Keycode
 from framework_is31fl3743 import IS31FL3743
 import json
 import traceback
+import os
+import microcontroller
 
 # === Matrix and Threshold Configuration ===
 MATRIX_COLS = 8
@@ -208,13 +210,25 @@ def process_key(pressed, released):
             if usb_serial:
                 usb_serial.write((json.dumps(to_send) + '\n').encode())
                 usb_serial.flush()
+        elif code.startswith("USB:"):
+            action = code[4:]
+            if action == "EXPOSE":
+                try:
+                    f = open('usb_exposed', 'w')
+                    f.close()
+                except: pass
+            elif action == "HIDE":
+                try:
+                    os.remove('usb_exposed')
+                except: pass
+            microcontroller.reset()
         else:
             process_strokes(code, True)
-    
+
     ## Released part
     lookup_key = "-".join(sorted_released)
     code = MATRIX_COMMANDS.get(lookup_key,None)
-    if code and not code.startswith("MSG:"):
+    if code and not code.startswith("MSG:") and not code.startswith("USB:"):
         process_strokes(code, False)
 
     ## Release all if nothing is pressed
@@ -241,6 +255,12 @@ def load_config(config):
     MATRIX_COMMANDS = config.get('keys', {})
     if config.get('symbols', None): SYMBOLS = config['symbols']
     matrix_paint()
+
+try:
+    with open('startup.json', 'r') as f:
+        load_config(json.loads(f.read()))
+except:
+    pass
 
 # === Main Loop ===
 print("Starting Anti-Ghosting Engine V3")
