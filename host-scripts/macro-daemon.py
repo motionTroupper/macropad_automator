@@ -35,6 +35,7 @@ import socket
 import atexit
 import faulthandler
 import tempfile
+import winreg
 
 
 program_name_pattern = r'[^a-z0-9._\-\s]'
@@ -335,12 +336,14 @@ def active_monitors():
 
 def load_zones_config():
     global ZONE_DEFINITIONS, HARDWARE_ID_MAP, BORDER_OFFSET, APP_OVERRIDES, ZONE_CYCLE
+    global CUSTOM_INACTIVITY_CHECK
     try:
         with open("zones.json", "r") as f:
             data = json.load(f)
             ZONE_DEFINITIONS = data.get("areas", {})
             HARDWARE_ID_MAP = data.get("hardware_mapping", {}) # <--- NUEVO
             APP_OVERRIDES = data.get("app_overrides", {})
+            CUSTOM_INACTIVITY_CHECK = data.get("custom_inactivity_check", {})
 
             cycle = data.get("cycle")
             if isinstance(cycle, list) and cycle:
@@ -350,7 +353,7 @@ def load_zones_config():
             offset_key = f"offsets-{hostname}"
             BORDER_OFFSET = data.get(offset_key, data.get("offsets-default", {}))
 
-            print(f"Loaded {len(ZONE_DEFINITIONS)} zones, {len(HARDWARE_ID_MAP)} hardware monitors, cycle of {len(ZONE_CYCLE)} zones.")
+            print(f"Loaded {len(ZONE_DEFINITIONS)} zones, {len(HARDWARE_ID_MAP)} hardware monitors, cycle of {len(ZONE_CYCLE)} zones, {len(CUSTOM_INACTIVITY_CHECK)} custom inactivity budgets.")
     except Exception as e:
         print(f"Error loading zones.json: {e}")
 
@@ -1159,6 +1162,232 @@ def monitor_power_state():
         time.sleep(2)
 
 
+## --- Anti-idle -------------------------------------------------------------
+## Domain policy locks the session after a fixed idle period and the timeout is
+## not ours to change. `custom_inactivity_check` in zones.json maps a monitor
+## hardware id to a longer inactivity budget: while that monitor is attached we
+## keep the session alive by synthesizing a phantom keypress before the system
+## counter expires, and we STOP doing it once the human has been away for
+## (budget - system limit) — so the session still locks, just at `budget`
+## instead of at the policy value. With no listed monitor attached the budget
+## equals the system limit and the loop never injects anything.
+CUSTOM_INACTIVITY_CHECK = {}      ## hardware id -> inactivity budget in seconds
+DEFAULT_INACTIVITY_LIMIT = 300    ## fallback when the registry says nothing
+VK_NONAME = 0xFC                  ## reserved virtual key with no meaning
+KEYEVENTF_KEYUP = 0x0002
+INACTIVITY_TICK_SECONDS = 5
+INACTIVITY_BUDGET_REFRESH_SECONDS = 30
+## Ceiling relative to the system limit, so a policy change scales the cadence
+## on its own. In practice the absolute cap below is the binding constraint.
+INACTIVITY_INJECT_AT = 0.6
+## Hard cap on the gap between injections, regardless of the fraction above.
+## This is what actually governs the cadence: the 0.6 fraction alone (180 s
+## against a 300 s limit) did NOT keep the session alive in testing even though
+## the injections were provably registering in GetLastInputInfo. 10 s did. If
+## the session ever locks again, lower this before suspecting anything else.
+INACTIVITY_MAX_INTERVAL_SECONDS = 120
+
+
+def read_system_inactivity_limit():
+    """Seconds of inactivity after which policy locks the session.
+
+    Two independent mechanisms can do it and both read the same idle counter:
+    the secure screensaver (`ScreenSaveTimeOut`, but only when it is both
+    active AND secure) and Winlogon's machine inactivity limit
+    (`InactivityTimeoutSecs`). Whichever fires first is the real deadline, so
+    take the minimum. Read at runtime rather than hardcoded because the GPO
+    owns these values and can change them under us."""
+    limits = []
+
+    ## The Policies branch is what the GPO writes; the plain Control Panel key
+    ## is the user's own setting and only matters when no policy applies.
+    for path in (r"Software\Policies\Microsoft\Windows\Control Panel\Desktop",
+                 r"Control Panel\Desktop"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+                def value(name):
+                    try:
+                        return str(winreg.QueryValueEx(key, name)[0])
+                    except OSError:
+                        return None
+
+                timeout = value("ScreenSaveTimeOut")
+                if timeout and value("ScreenSaveActive") == "1" and value("ScreenSaverIsSecure") == "1":
+                    limits.append(int(timeout))
+                    break
+        except OSError:
+            pass
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System") as key:
+            seconds = int(winreg.QueryValueEx(key, "InactivityTimeoutSecs")[0])
+            if seconds > 0:
+                limits.append(seconds)
+    except OSError:
+        pass
+
+    if not limits:
+        print(f"Anti-idle: no lock timeout found in registry, assuming {DEFAULT_INACTIVITY_LIMIT}s")
+        return DEFAULT_INACTIVITY_LIMIT
+    return min(limits)
+
+
+def inactivity_budget(system_limit):
+    """Inactivity budget for the monitors currently attached.
+
+    Any monitor listed in `custom_inactivity_check` raises the budget to its
+    value; with several attached the most permissive one wins."""
+    if not CUSTOM_INACTIVITY_CHECK:
+        return system_limit
+
+    try:
+        attached = {dev_id for dev_id, _ in active_monitors()}
+    except Exception as e:
+        print(f"Anti-idle: could not enumerate monitors: {e}")
+        return system_limit
+
+    budget = system_limit
+    for hw_id, seconds in CUSTOM_INACTIVITY_CHECK.items():
+        ## Same normalization as get_monitor_rect_by_alias: the `_N` suffix in
+        ## zones.json distinguishes two heads of one model, irrelevant here.
+        if hw_id.split('_')[0] in attached:
+            budget = max(budget, int(seconds))
+    return budget
+
+
+def press_phantom_key():
+    """Reset the system idle counter with the least intrusive input available.
+
+    VK_NONAME is documented as reserved and carries no meaning, so it produces
+    no character and no scancode anything translates — yet the injection still
+    updates GetLastInputInfo, which is what both lock mechanisms read.
+
+    Do NOT go back to F13-F24: this used F15 first, on the reasoning that no
+    modern PC keyboard has the key. Wrong reasoning — xterm-style terminals,
+    Windows Terminal among them, DO map those to ANSI escape sequences, and a
+    WSL shell echoed each phantom press as stray characters.
+
+    Emitted via keybd_event rather than the `keyboard` package on purpose: the
+    daemon switches keyboard layouts constantly and we want a raw virtual-key
+    event, not a layout-translated one."""
+    user32 = ctypes.windll.user32
+    user32.keybd_event(VK_NONAME, 0, 0, 0)
+    user32.keybd_event(VK_NONAME, 0, KEYEVENTF_KEYUP, 0)
+
+
+class LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.wintypes.UINT),
+                ("dwTime", ctypes.wintypes.DWORD)]
+
+
+def monitor_inactivity():
+    """Keeps the session alive up to the monitor-conditioned budget.
+
+    GetLastInputInfo cannot distinguish our injections from real typing, so
+    measuring how long the *human* has been away needs the absolute tick of the
+    last input: after each injection we record the tick it produced, and any
+    later tick that isn't that one is real user activity. Two clocks therefore
+    run here — the system's idle time (which our own keypresses reset, and which
+    decides WHEN to inject) and the human's idle time (which only real input
+    resets, and which decides WHETHER to keep injecting)."""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+
+    lii = LASTINPUTINFO()
+    lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
+
+    def last_input_tick():
+        if not user32.GetLastInputInfo(ctypes.byref(lii)):
+            return None
+        return lii.dwTime
+
+    def seconds_since(tick):
+        ## Masking to 32 bits makes this correct across GetTickCount's ~49-day
+        ## wrap-around, where a plain subtraction would go negative.
+        return ((kernel32.GetTickCount() - tick) & 0xFFFFFFFF) / 1000.0
+
+    system_limit = read_system_inactivity_limit()
+    inject_after = system_limit * INACTIVITY_INJECT_AT
+    if INACTIVITY_MAX_INTERVAL_SECONDS:
+        inject_after = min(inject_after, INACTIVITY_MAX_INTERVAL_SECONDS)
+    print(f"Anti-idle: policy locks after {system_limit}s; will inject past {int(inject_after)}s idle")
+
+    human_tick = last_input_tick()
+    injected_tick = None
+    ## Set when an injection's tick could not be read back yet, so the next new
+    ## tick we see is adopted as ours instead of read as the user returning.
+    adopt_next_tick = False
+    budget = inactivity_budget(system_limit)
+    budget_checked_at = time.monotonic()
+    budget_exhausted = False
+    print(f"Anti-idle: initial budget {budget}s")
+
+    while True:
+        time.sleep(INACTIVITY_TICK_SECONDS)
+        try:
+            now = time.monotonic()
+            if now - budget_checked_at >= INACTIVITY_BUDGET_REFRESH_SECONDS:
+                budget_checked_at = now
+                new_budget = inactivity_budget(system_limit)
+                if new_budget != budget:
+                    print(f"Anti-idle: budget {budget}s -> {new_budget}s (monitors changed)")
+                    budget = new_budget
+                    budget_exhausted = False
+
+            tick = last_input_tick()
+            if tick is None or human_tick is None:
+                human_tick = tick
+                continue
+
+            if tick != injected_tick and tick != human_tick:
+                if adopt_next_tick:
+                    injected_tick = tick
+                    adopt_next_tick = False
+                else:
+                    human_tick = tick
+                    if budget_exhausted:
+                        print("Anti-idle: user is back, budget re-armed")
+                        budget_exhausted = False
+
+            ## No extended budget for this monitor set: leave the policy alone.
+            if budget <= system_limit:
+                continue
+
+            human_idle = seconds_since(human_tick)
+
+            ## Stop `system_limit` short of the budget so the natural lock lands
+            ## exactly at `budget` — the whole point of the config value.
+            if human_idle >= budget - system_limit:
+                if not budget_exhausted:
+                    print(f"Anti-idle: human idle {int(human_idle)}s exhausted the {budget}s "
+                          f"budget — letting the session lock")
+                    budget_exhausted = True
+                continue
+
+            if seconds_since(tick) >= inject_after:
+                press_phantom_key()
+                ## Give the raw input thread a moment to register the event
+                ## before reading back the tick it produced.
+                time.sleep(0.05)
+                new_tick = last_input_tick()
+                if new_tick is None or new_tick == tick:
+                    adopt_next_tick = True
+                else:
+                    injected_tick = new_tick
+                ## Logging the tick on both sides of the injection is the whole
+                ## diagnostic: an unchanged tick means keybd_event did nothing,
+                ## a changed one means the system did register our keystroke and
+                ## any remaining lock is decided by something other than
+                ## GetLastInputInfo.
+                debug and print(f"Anti-idle: phantom key sent, tick {tick} -> {new_tick} "
+                                f"({'NO CHANGE' if new_tick == tick else 'idle reset'}), "
+                                f"human idle {int(human_idle)}s of {budget}s")
+        except Exception as e:
+            print(f"Anti-idle error: {e}")
+            traceback.print_exc()
+
+
 def cycle_window_zone(direction):
     global WINDOW_ZONE_INDEX, WINDOW_ZONE_LAST_PRESS
 
@@ -1355,6 +1584,7 @@ def launch_program():
         threading.Thread(target=store_layouts, daemon=True, name="store_layouts"),
         threading.Thread(target=hotkey_listener, daemon=True, name="hotkeys"),
         threading.Thread(target=monitor_power_state, daemon=True, name="power"),
+        threading.Thread(target=monitor_inactivity, daemon=True, name="antiidle"),
         threading.Thread(target=watchdog, daemon=True, name="watchdog"),
     ]
     if DIAGNOSTICS_ENABLED:
