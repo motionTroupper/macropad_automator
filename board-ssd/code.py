@@ -134,6 +134,11 @@ is31.enable = True
 
 sleep_pin = digitalio.DigitalInOut(board.GP0)
 sleep_pin.direction = digitalio.Direction.INPUT
+## Without a pull this input floats and reads noise, and a spurious low makes
+## the main loop take its 5 s sleep branch — which looks like the macropad
+## ignoring keypresses for five seconds. Pull up so "nobody driving the line"
+## means awake; a host that really asserts sleep still pulls it low.
+sleep_pin.pull = digitalio.Pull.UP
 
 def matrix_paint():
     global MATRIX_LED_MAP, MATRIX_COLORS
