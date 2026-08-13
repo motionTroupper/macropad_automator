@@ -17,8 +17,7 @@
             "e1":"008800",
             "e2":"888800",
             "e3":"880000",
-            "e4":"0000ff",
-						"k9":"0000ff"
+            "e4":"0000ff"
         },
         "keys":{
             "b1":"\\e\\e\\C\\S1\\s\\c\\sgi",
@@ -142,21 +141,13 @@
         },
         "programs":{
             "chrome":{
-                "program":"chrome.exe --new-tab about:blank",
-                "window":"chrome.exe",
-                "multiple_instances": true
+                "program":"chrome.exe --new-tab about:blank"
             },
             "Ubuntu":{
-                "program_old":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
-                "program":"wt -w new nt -p \"Ubuntu\" ",
-                "window":"WindowsTerminal.exe",
-                "multiple_instances": false
+                "program":"wt -w new nt -p \"Ubuntu\" "
             },
             "Ubuntu-tab":{
-                "program_old":"wt -w new nt -p \"Ubuntu\" -- bash -lc \"tmux\"",
-                "program":"wt -w new nt -p \"Ubuntu\" ",
-                "window":"WindowsTerminal.exe",
-                "multiple_instances": true
+                "program":"wt -w 0 nt -p \"Ubuntu\" "
             }
         },
         "toggles":{
@@ -259,14 +250,13 @@
             "f4":"0000ff"
         },
         "keys":{
-            "a1":"MSG:OPEN:EN,Ubuntu",
-            "a1-a2":"MSG:OPEN:EN,Ubuntu-tab",
+            "a1":"MSG:OPEN:EN,Ubuntu-tab",
+            "a1-a2":"MSG:OPEN:EN,Ubuntu",
             "a3-a4":"MSG:OPEN:ES,chrome",
             "a1-a2-a3-a4":"MSG:SLEEP:010",
             "a2":"MSG:TOGGLE:scenes",
             "a3":"MSG:TOGGLE:camera",
             "a4":"MSG:TOGGLE:microphone",
-
 
             "b1-b4":"MSG:IDLE:5,30",
 

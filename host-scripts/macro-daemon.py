@@ -53,7 +53,7 @@ except Exception:
 ## --- Feature flags --------------------------------------------------------
 ## Verbose logging: per-window-event prints (config lookups, macropad sends,
 ## layout changes). Off for normal operation; flip True when diagnosing.
-debug = False
+debug = True
 
 ## Diagnostic threads: heartbeat (every-2s thread census) and the hidden-window
 ## Windows broadcast listener (DISPLAYCHANGE/POWERBROADCAST/...). Both purely
@@ -182,7 +182,6 @@ serial_queue = queue.Queue()
 
 APP_OVERRIDES = {}
 ZONE_DEFINITIONS = {}
-MONITOR_ALIASES = {}
 BORDER_OFFSET = {}
 HARDWARE_ID_MAP = {}
 TEAMS_RECORDING_TOP = 0
@@ -548,62 +547,30 @@ def toggle_monitor_timeout(spec):
 
 
 def open_window(regexp_filter):
+    """Launch the program a key is bound to. Always a fresh one.
 
-    # Check for comma to extract second part
+    This used to hunt for an existing window of the same executable and
+    minimize+restore it to raise it, only spawning a second instance when the
+    window was already focused. Raising windows is what alt-tab is for, and the
+    heuristic got in the way more often than it helped.
+
+    Whether "fresh" means a new tab or a new window is not this function's
+    business — it is an argument of the program itself, so it lives in the
+    command configured for each entry (`wt -w 0` vs `wt -w new`,
+    `chrome --new-tab` vs `--new-window`)."""
+
+    ## Configs address programs as "XX,name"; only the name half is used.
     if ',' in regexp_filter:
-        parts = regexp_filter.split(',')
-        regexp_filter = parts[1]
+        regexp_filter = regexp_filter.split(',')[1]
 
-    # Get program info from running config
     programs = running_config.get('programs', {})
     if regexp_filter not in programs:
         print (f"Program {regexp_filter} was not recognized")
-        return 
+        return
 
-    # Extract program details   
     program_name = programs[regexp_filter]['program']
-    window_name = programs[regexp_filter]['window']
-    multiple_instances = programs[regexp_filter].get('multiple_instances',False)
-
-    # Search for existing windows
-    def callback(hwnd, lista):
-        if win32gui.IsWindowVisible(hwnd):
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            try:
-                proceso = psutil.Process(pid)
-                nombre_ejecutable = proceso.name()
-                if re.search(window_name, nombre_ejecutable, re.IGNORECASE):
-                    lista.append(hwnd)
-            except psutil.NoSuchProcess:
-                pass
-
-    windows=[]
-    win32gui.EnumWindows(callback, windows)
-
-    if len(windows)==0:
-        print (f"Launching program {program_name}")
-        subprocess.Popen(f"start {program_name}", shell=True)
-        time.sleep(1)
-    elif win32gui.GetForegroundWindow() in windows:
-        print (f"Window for {regexp_filter} is already active")
-        if multiple_instances:
-            print (f"Launching another instance of {program_name}")
-            subprocess.Popen(f"start {program_name}", shell=True)
-
-    if len(windows)==0:
-        win32gui.EnumWindows(callback, windows)
-
-    for hwnd in windows:
-        if win32gui.IsIconic(hwnd):  
-            print (f"Restoring minimized window for {regexp_filter}")
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            continue
-        else:
-            print (f"Bringing to front window for {regexp_filter}")
-            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-            time.sleep(0.05)
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            continue
+    print (f"Launching program {program_name}")
+    subprocess.Popen(f"start {program_name}", shell=True)
 
 
 def lookup_config(window_title):
@@ -877,6 +844,18 @@ def monitor_macropad():
                 serial_port_initialize()
         except Exception as ex:
             print(f"Serial port error: {ex}")
+            ## The macropad resets itself on USB:EXPOSE / USB:HIDE, which
+            ## re-enumerates the device and leaves our handle pointing at
+            ## something that no longer exists. pyserial cannot tell: `is_open`
+            ## only records that we opened the object, not that the handle is
+            ## still valid, so the loop above would never take the reopen
+            ## branch and the daemon stayed deaf until restarted. Dropping the
+            ## port here is what makes the next pass reopen it.
+            try:
+                serial_port.close()
+            except Exception:
+                pass
+            serial_port = None
             time.sleep(2)
 
 def enter_suspend_state(data):
@@ -1656,18 +1635,6 @@ def kill_other_instances_same_script():
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-def respawn():
-    # Flags para Windows: Proceso separado, nueva consola, sin heredar del padre
-    DETACHED_PROCESS = 0x00000008
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    
-    subprocess.Popen(
-        [sys.executable] + sys.argv,
-        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-        close_fds=True
-    )
-    sys.exit()
-
 def window_change_callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
     global current_program, current_program_hwnd
     try:
@@ -1736,8 +1703,17 @@ if __name__ == "__main__":
     ## Kill other instances of this same script
     kill_other_instances_same_script()
 
-    ## Globally initialize serial port
-    serial_port_initialize()
+    ## Globally initialize serial port. A macropad that is unplugged (or still
+    ## re-enumerating after a reset) has no COM port at all, and pyserial
+    ## raises rather than returning — which used to kill the daemon outright on
+    ## an otherwise recoverable condition. Everything else the daemon does is
+    ## independent of the macropad, and monitor_macropad already retries the
+    ## open every 2 s, so log it and carry on: the macropad joins in whenever
+    ## it comes back.
+    try:
+        serial_port_initialize()
+    except Exception as e:
+        print(f"Serial port not available at startup ({e}); will keep retrying")
 
     ## Inventory of monitors at startup is purely informational — log it only
     ## when debugging because it can be noisy on multi-monitor setups.
