@@ -53,7 +53,7 @@ except Exception:
 ## --- Feature flags --------------------------------------------------------
 ## Verbose logging: per-window-event prints (config lookups, macropad sends,
 ## layout changes). Off for normal operation; flip True when diagnosing.
-debug = True
+debug = False
 
 ## Diagnostic threads: heartbeat (every-2s thread census) and the hidden-window
 ## Windows broadcast listener (DISPLAYCHANGE/POWERBROADCAST/...). Both purely
